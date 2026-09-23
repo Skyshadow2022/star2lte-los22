@@ -80,7 +80,7 @@ jobs:
           git config --global color.ui false
           repo init --depth=1 -u https://github.com/LineageOS/android.git -b lineage-22.2 --git-lfs
           mkdir -p .repo/local_manifests
-          cp "$GITHUB_WORKSPACE/../repo-config/.repo-local-manifests/star2lte.xml" .repo/local_manifests/star2lte.xml
+          cp "$GITHUB_WORKSPACE/repo-config/.repo-local-manifests/star2lte.xml" .repo/local_manifests/star2lte.xml
           test -f .repo/local_manifests/star2lte.xml
 
       - name: repo sync (shallow)
