@@ -46,7 +46,8 @@
            path="hardware/samsung_slsi-linaro/interfaces" remote="github" revision="lineage-22.2" />
   <project name="LineageOS/android_hardware_samsung_slsi-linaro_openmax"
            path="hardware/samsung_slsi-linaro/openmax" remote="github" revision="lineage-22.2" />
-  <project name="LineageOS/android_hardware_samsung_slsi_nfc"
-           path="hardware/samsung_slsi/nfc" remote="github" revision="lineage-22.2" />
+  <!-- android_hardware_samsung_slsi_nfc has no lineage-22.x branch (it was
+       introduced for LOS 23); the 22.2 trees don't reference it, NFC comes
+       from the standard LineageOS trees. Omitted. -->
 
 </manifest>
