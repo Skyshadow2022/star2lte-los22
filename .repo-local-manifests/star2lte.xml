@@ -24,10 +24,10 @@
   <project name="ExyHyperBrick/proprietary_vendor_samsung_star2lte"
            path="vendor/samsung/star2lte" remote="github" revision="lineage-22.2" />
 
-  <!-- DTBH packer: only a lineage-23.2 branch exists; it is a build-time tool
-       and is version-independent. -->
-  <project name="ExyHyperBrick/android_hardware_samsung_slsi_exynos_dtbh"
-           path="hardware/samsung_slsi/exynos/dtbh" remote="github" revision="lineage-23.2" />
+  <!-- NOTE: do NOT add ExyHyperBrick/..._exynos_dtbh here. On lineage-22.2 the
+       dtbhtoolExynos module is already provided by LineageOS/android_hardware_samsung
+       (hardware/samsung/dtbhtool); adding the separate dtbh repo (a 23.2-era split)
+       causes a duplicate-module build error. -->
 
   <!-- ===== Samsung/Exynos HALs & sepolicy (LineageOS @ lineage-22.2) ===== -->
   <project name="LineageOS/android_device_samsung_slsi_sepolicy"
