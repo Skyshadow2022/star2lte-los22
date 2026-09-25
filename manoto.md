@@ -14,7 +14,22 @@
 |---|---|---|
 | **TWRP fix9** (img + Odin tar) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/twrp-fix9 | ✅ tested on device: boot, GUI, touch, adb, brightness OK |
 | LOS 22.2 build #1 (base) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/22.2-20260924 | ✅ flashed & boots. Camera broken. /data must be **f2fs** |
-| LOS 22.2 build #2 (camera fix + KernelSU) | _pending — building on server since 2026-09-25 17:29 UTC_ | ⏳ |
+| **LOS 22.2 build #2** (camera fix + KernelSU-Next, KPROBES hook) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/22.2-20260925-build2 | ⚠️ built & verified in-zip, **NOT yet flashed/tested on device** |
+
+Build #2 direct zip: https://github.com/Skyshadow2022/star2lte-los22/releases/download/22.2-20260925-build2/lineage-22.2-20260925-UNOFFICIAL-star2lte.zip
+Build #2 sha256: zip `d95735a334a837587a9d48e556a083b00a40b2e4bf0e8d78ff7a72fdc9e645e1`,
+boot.img `032a6912984e7072ae9a87f56608068a8e37297a154e82d3140b497facf65a14`,
+recovery.img `6d9495d9a52bbcbaf5b10f4ff586b545beed0b4969cc65c73fe5340c76e4b3b3`.
+Verified before upload: zip's boot.img == KSU kernel (CONFIG_KSU=y, KPROBES_HOOK);
+vendor libhwjpeg.so (lib + lib64) exports `_ZN26ExynosJpegEncoderForCameraC1Eb`.
+
+**Next step for a new session:** phone into TWRP fix9 → `adb sideload` build #2 zip
+(dirty flash over build #1, no format) → boot → check camera + KernelSU-Next
+manager. If bootloop: from TWRP `dd` build #1's boot.img (release 22.2-20260924,
+also at `D:\star2lte-rom\2026-09-24\boot.img`) to BOOT — that isolates the
+KernelSU kernel as the cause; then switch KSU to MANUAL_HOOK (see section B).
+Server 5.161.80.56 is still up (hourly billing) with the tree ready for rebuilds;
+delete it in Hetzner when root is confirmed.
 
 TWRP sha256: img `a62808c766c1db21b779f7804eb59eb834ec30c4aec43cc69c64e461ec808aeb`,
 odin tar `6c40ca38bf1fa33b14ffb3fb53691926c8e66a637a46e60ec84573f4a2980331`.
@@ -279,8 +294,11 @@ Do NOT mix susfs4ksu patches with KernelSU-Next.
    then read back the first N 2048-byte pages and compare sha.
 1. ✅ Build #2 kernel compile done (KPROBES hook). Optional: test boot.img alone first
    (`dd` to BOOT from TWRP; keep build-#1 boot.img from D:\star2lte-rom\2026-09-24 as rollback).
-2. Full ROM: `/root/build.sh` (remember the debugfs unmount before zip).
-3. Upload new zip to a new release tag; download; flash (dirty over build #1 keeps
+2. ✅ Full ROM built 2026-09-25 (`/root/build.sh`; debugfs unmounted first).
+   Upload trick: create the release locally with `gh`, then upload assets FROM THE
+   SERVER with curl to uploads.github.com (token piped over ssh stdin into a 600
+   file, deleted after — script `/root/up2.sh`). Never put the token in the repo.
+3. ✅ Uploaded to release `22.2-20260925-build2`. TODO: flash (dirty over build #1 keeps
    /data — no re-format needed since /data is already f2fs). Verify root via the
    KernelSU-Next manager app + `adb shell su`.
 4. Then tackle SUSFS (C).
