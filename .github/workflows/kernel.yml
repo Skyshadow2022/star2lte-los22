@@ -1,0 +1,125 @@
+name: star2lte kernel (KernelSU-Next legacy)
+
+# Kernel-only build: compiles the LOS 22.2 star2lte kernel with KernelSU-Next
+# (legacy branch, KPROBES hook) and swaps the new Image into the build #2
+# boot.img. Result + full build log go to the rolling "kernel-ci" release.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/kernel.yml
+      - tools/samsung_bootimg.py
+
+permissions:
+  contents: write
+
+env:
+  KERNEL_REPO: https://github.com/ExyHyperBrick/android_kernel_samsung_exynos9810
+  KERNEL_BRANCH: lineage-22.2
+  DEFCONFIG: exynos9810-star2lte_defconfig
+  KSU_TAG: v3.4.0-legacy
+  # = manager v3.4.0 versionCode; legacy Kbuild computes the same value from a
+  # full clone (30000 + 3005 commits + 289), pinned so a shallow clone can't
+  # make it drift like build #2 did (33004).
+  KSU_VERSION: "33294"
+  CLANG: clang-r536225
+  BASE_BOOT: https://github.com/Skyshadow2022/star2lte-los22/releases/download/22.2-20260925-build2/boot.img
+  BASE_BOOT_SHA256: 032a6912984e7072ae9a87f56608068a8e37297a154e82d3140b497facf65a14
+
+jobs:
+  kernel:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev cpio \
+            binutils-aarch64-linux-gnu lz4 python3 >/dev/null
+
+      - name: Cache clang
+        id: clang-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/clang
+          key: ${{ env.CLANG }}
+
+      - name: Fetch AOSP clang (same as the ROM build)
+        if: steps.clang-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/clang
+          curl -fsSL "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/${CLANG}.tar.gz" | tar -xz -C ~/clang
+
+      - name: Kernel source + KernelSU-Next
+        run: |
+          git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
+          cd kernel
+          curl -fsSL "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/${KSU_TAG}/kernel/setup.sh" | bash -s "$KSU_TAG"
+          git -C KernelSU-Next describe --tags
+          echo "KSU commit count: $(git -C KernelSU-Next rev-list --count HEAD)"
+
+      - name: KernelSU-Next 4.9 compat fixes
+        working-directory: kernel/KernelSU-Next/kernel
+        run: |
+          # 4.9 has no split sched headers (4.11) or compiler_types.h (4.13).
+          grep -rlE '#include <linux/sched/[a-z_]+\.h>' . | xargs -r sed -i -E 's@#include <linux/sched/[a-z_]+\.h>@#include <linux/sched.h>@'
+          grep -rl '#include <linux/compiler_types.h>' . | xargs -r sed -i 's@#include <linux/compiler_types.h>@#include <linux/compiler.h>@'
+          git -C .. diff --stat
+
+      - name: defconfig
+        working-directory: kernel
+        run: |
+          make O=out ARCH=arm64 "$DEFCONFIG"
+          cat >> out/.config <<'EOF'
+          CONFIG_KPROBES=y
+          CONFIG_KSU=y
+          # CONFIG_KSU_MANUAL_HOOK is not set
+          CONFIG_KSU_KPROBES_HOOK=y
+          # CONFIG_KSU_SYSCALL_TABLE_HOOK is not set
+          EOF
+          make O=out ARCH=arm64 olddefconfig
+          grep -E '^CONFIG_(KPROBES|KRETPROBES|KSU[A-Z_]*)=' out/.config
+          grep -q '^CONFIG_KSU_KPROBES_HOOK=y' out/.config || { echo "::error::KPROBES hook not selected"; exit 1; }
+
+      - name: Build Image
+        working-directory: kernel
+        run: |
+          export PATH="$HOME/clang/bin:$PATH"
+          clang --version | head -1
+          set -o pipefail
+          make -j"$(nproc)" O=out ARCH=arm64 \
+            CC=clang HOSTCC=clang HOSTCXX=clang++ \
+            CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
+            LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            KSU_VERSION_OVERRIDE="$KSU_VERSION" \
+            Image 2>&1 | tee ../build.log
+          grep -E 'KernelSU-Next (version|tag)' ../build.log || true
+
+      - name: Repack build #2 boot.img with the new kernel
+        run: |
+          curl -fsSL -o base-boot.img "$BASE_BOOT"
+          echo "$BASE_BOOT_SHA256  base-boot.img" | sha256sum -c
+          python3 tools/samsung_bootimg.py repack base-boot.img kernel/out/arch/arm64/boot/Image boot.img
+          python3 tools/samsung_bootimg.py info boot.img
+          strings kernel/out/arch/arm64/boot/Image | grep -m1 'Linux version'
+          mkdir -p dist
+          cp boot.img dist/boot-ksunext-v3.4.0-legacy.img
+          tar --format=ustar -C dist -cf dist/boot-ksunext-odin.tar --transform 's/.*/boot.img/' boot-ksunext-v3.4.0-legacy.img
+          cp kernel/out/.config dist/kernel.config
+          (cd dist && sha256sum boot-ksunext-v3.4.0-legacy.img boot-ksunext-odin.tar > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: Publish to "kernel-ci" release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          [ -f build.log ] && tail -c 900000 build.log > dist/build.log || echo "no build log (failed before compile)" > dist/build.log
+          echo "run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} status: ${{ job.status }}" > dist/STATUS.txt
+          gh release view kernel-ci >/dev/null 2>&1 || gh release create kernel-ci --prerelease \
+            --title "Kernel CI (KernelSU-Next legacy)" --notes "Rolling kernel-only builds. Untested until noted in manoto.md."
+          gh release upload kernel-ci dist/* --clobber
