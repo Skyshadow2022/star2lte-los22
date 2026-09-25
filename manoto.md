@@ -141,3 +141,114 @@ server or push to GitHub from home, Mehran must bring `id_ed25519` and the token
 console). The Hetzner MCP (server create/delete/list) is tied to the Claude
 account config, so it may be available from home even without the local files —
 use it to inspect or delete the server.
+
+---
+
+## UPDATE 2 — 2026-09-25 (build #1 BOOTS; build #2 = camera + KernelSU in progress)
+
+### Build #1 result: SUCCESS ✅
+LineageOS 22.2 (Android 15) **boots** on the phone. Confirmed:
+`lineage_star2lte-userdebug 15 BP1A.250505.005`, /data mounts f2fs+inlinecrypt,
+zygote/surfaceflinger up.
+
+**Critical install lesson (not a build bug):** after installing the ROM you MUST
+**format /data as f2fs**, NOT ext4. TWRP `format data` made it ext4 → LOS fstab
+wants f2fs → /data wouldn't mount → apexd aborted → `reboot,apexd-failed`
+bootloop. Fix that worked, from TWRP adb (root, no `su`):
+```
+umount /data 2>/dev/null; umount /dev/block/by-name/USERDATA 2>/dev/null
+make_f2fs -g android -O encrypt -O quota -f /dev/block/by-name/USERDATA
+```
+(kernel DOES support inlinecrypt; the only issue was fs type.) /metadata warnings
+in dmesg are non-fatal (device has no /metadata partition; not needed).
+
+### Released
+`https://github.com/Skyshadow2022/star2lte-los22/releases/tag/22.2-20260924`
+Assets: `lineage-22.2-20260924-UNOFFICIAL-star2lte.zip` (948 MB), boot.img,
+recovery.img (LOS recovery), SHA256SUMS. Also downloaded locally to the WORK PC:
+`D:\star2lte-rom\2026-09-24\`.
+
+### Flash procedure that worked (all from the custom TWRP already on RECOVERY, via adb)
+TWRP on RECOVERY is `3.7.1_12-0` (our earlier build; adb+root, `su` not needed).
+```
+# 1. push LOS recovery for later (optional):  adb push recovery.img /tmp/
+# 2. format data:  adb shell make_f2fs -g android -O encrypt -O quota -f /dev/block/by-name/USERDATA
+# 3. install ROM by sideload:
+adb shell 'twrp sideload' &   ; sleep 6 ; adb sideload lineage-22.2-*.zip
+# 4. reboot:  adb reboot
+```
+Install log shows "Patching system/vendor/odm ... script succeeded ... RC=0".
+We kept our TWRP on RECOVERY (did NOT flash LOS recovery) so the phone stays
+adb-recoverable during testing.
+
+### Known issue on build #1: CAMERA does not work
+`libexynoscamera3.so` (blob) needs `_ZN26ExynosJpegEncoderForCameraC1Eb`
+(1-arg ctor `ExynosJpegEncoderForCamera(bool)`), but the A15 source libhwjpeg
+only emits the 2-arg `C1Ebj` (constructor is `#if HWJPEG_ANDROID_VERSION >= 10`
+= `(bool,uint)`). We shipped build #1 with `check_elf_files: false` on
+libexynoscamera3 to let it build; camera fails at runtime. **Build #2 fixes it.**
+
+## Build #2 — camera fix + KernelSU (SUSFS deferred). ALL CHANGES ARE ON THE
+## HETZNER SERVER ONLY (not committed). Reproduce them if the server is lost.
+
+Server: `5.161.80.56` root, key `C:\Users\PAV\.ssh\id_ed25519`. Source `~/los`.
+Build kernel-only fast: `tmux new-session -d -s kbuild "/root/kbuild.sh"`
+(kbuild.sh = source build/envsetup.sh; breakfast star2lte userdebug; mka bootimage).
+Full ROM: `/root/build.sh` (mka bacon). Remember `umount -l /sys/kernel/debug`
+before the ota/zip step or `zip` hangs following the `d -> /sys/kernel/debug`
+symlink (a QEMU HID debugfs file blocks the read).
+
+### (A) Camera fix — libhwjpeg 1-arg constructor
+Dir: `~/los/hardware/samsung_slsi-linaro/graphics/base/libhwjpeg/`
+- `include/ExynosJpegEncoderForCamera.h`, in the `#if HWJPEG_ANDROID_VERSION >= 10`
+  branch, change the single ctor decl to TWO:
+  ```
+  ExynosJpegEncoderForCamera(bool bBTBComp, unsigned int index);
+  ExynosJpegEncoderForCamera(bool bBTBComp = true);
+  ```
+- `ExynosJpegEncoderForCamera.cpp`, before `~ExynosJpegEncoderForCamera()`:
+  ```
+  #if HWJPEG_ANDROID_VERSION >= 10
+  ExynosJpegEncoderForCamera::ExynosJpegEncoderForCamera(bool bBTBComp)
+          : ExynosJpegEncoderForCamera(bBTBComp, 0) {}
+  #endif
+  ```
+This emits `C1Eb` so the blob links; keeps `C1Ebj` for source. (We also left
+`check_elf_files: false` on libexynoscamera3 in vendor/samsung/star2lte/Android.bp
+as belt-and-suspenders — harmless.)
+
+### (B) KernelSU (root) — KernelSU-Next LEGACY, syscall-table hook (non-GKI 4.9)
+Kernel dir: `~/los/kernel/samsung/exynos9810/`
+1. `curl -LSs https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh | bash -s next`
+   then in `KernelSU-Next/`: `git checkout legacy` (v3.2.0-legacy). This gives
+   `drivers/kernelsu -> ../KernelSU-Next/kernel` + Makefile/Kconfig wiring.
+   Legacy supports non-GKI via **CONFIG_KSU_SYSCALL_TABLE_HOOK** (no kprobes, no
+   manual VFS hooks — it auto-patches fs/namespace.c + selinux at build time).
+2. defconfig `arch/arm64/configs/exynos9810-star2lte_defconfig` append:
+   ```
+   CONFIG_KSU=y
+   # CONFIG_KSU_MANUAL_HOOK is not set
+   CONFIG_KSU_SYSCALL_TABLE_HOOK=y
+   ```
+3. **4.9 header/API compat fixes inside `KernelSU-Next/kernel/`** (KSU-Next targets
+   newer kernels; each was a compile error we fixed, expect maybe a few more):
+   - all `#include <linux/sched/{signal,task,task_stack}.h>` → `#include <linux/sched.h>`
+   - `manager/apk_sign.c`: add `#include "compat/kernel_compat.h"` after `#include "util.h"`
+     (provides the <4.12 `kvmalloc` shim already in that header).
+   - all `#include <linux/compiler_types.h>` → `#include <linux/compiler.h>` (4.13 split)
+   - (iterate: `mka bootimage`, read `~/kbuild.log` for the next missing symbol/header.)
+
+### (C) SUSFS — DEFERRED (not done yet)
+susfs4ksu's patches are written for OFFICIAL KernelSU and do NOT apply to
+KernelSU-Next's source (Makefile/allowlist.c differ; 10_enable patch fails).
+Plan: use a susfs variant matched to KernelSU-Next (its own susfs support /
+matching susfs kernel patch version) AFTER KernelSU root is confirmed working.
+Do NOT mix susfs4ksu patches with KernelSU-Next.
+
+### Next steps
+1. Finish build #2 kernel compile (fix remaining 4.9 comapt errors) → `mka bootimage` clean.
+2. Full ROM: `/root/build.sh` (remember the debugfs unmount before zip).
+3. Upload new zip to a new release tag; download; flash (dirty over build #1 keeps
+   /data — no re-format needed since /data is already f2fs). Verify root via the
+   KernelSU-Next manager app + `adb shell su`.
+4. Then tackle SUSFS (C).
