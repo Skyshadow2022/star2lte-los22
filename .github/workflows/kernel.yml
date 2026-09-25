@@ -51,7 +51,14 @@ jobs:
         if: steps.clang-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p ~/clang
-          curl -fsSL "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/${CLANG}.tar.gz" | tar -xz -C ~/clang
+          url="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/${CLANG}.tar.gz"
+          for i in 1 2 3 4 5; do
+            curl -fL --retry 3 -o clang.tgz "$url" && gzip -t clang.tgz && break
+            echo "clang download attempt $i failed ($(stat -c %s clang.tgz 2>/dev/null) bytes)"; rm -f clang.tgz; sleep 20
+          done
+          ls -l clang.tgz
+          tar -xzf clang.tgz -C ~/clang && rm clang.tgz
+          ~/clang/bin/clang --version | head -1
 
       - name: Kernel source + KernelSU-Next
         run: |
