@@ -11,6 +11,7 @@ on:
     paths:
       - .github/workflows/kernel.yml
       - tools/samsung_bootimg.py
+      - tools/ksu_legacy_4.9_fixes.sh
 
 permissions:
   contents: write
@@ -71,9 +72,7 @@ jobs:
       - name: KernelSU-Next 4.9 compat fixes
         working-directory: kernel/KernelSU-Next/kernel
         run: |
-          # 4.9 has no split sched headers (4.11) or compiler_types.h (4.13).
-          grep -rlE '#include <linux/sched/[a-z_]+\.h>' . | xargs -r sed -i -E 's@#include <linux/sched/[a-z_]+\.h>@#include <linux/sched.h>@'
-          grep -rl '#include <linux/compiler_types.h>' . | xargs -r sed -i 's@#include <linux/compiler_types.h>@#include <linux/compiler.h>@'
+          sh "$GITHUB_WORKSPACE/tools/ksu_legacy_4.9_fixes.sh"
           git -C .. diff --stat
 
       - name: defconfig
@@ -125,7 +124,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p dist
-          [ -f build.log ] && tail -c 900000 build.log > dist/build.log || echo "no build log (failed before compile)" > dist/build.log
+          { echo "run ${{ github.run_number }} (${{ github.run_id }}) sha ${{ github.sha }} status ${{ job.status }}"
+            [ -f build.log ] && tail -c 900000 build.log || echo "no build log (failed before compile)"; } > dist/build.log
           echo "run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} status: ${{ job.status }}" > dist/STATUS.txt
           gh release view kernel-ci >/dev/null 2>&1 || gh release create kernel-ci --prerelease \
             --title "Kernel CI (KernelSU-Next legacy)" --notes "Rolling kernel-only builds. Untested until noted in manoto.md."
