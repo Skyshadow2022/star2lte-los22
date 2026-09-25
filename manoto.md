@@ -8,6 +8,22 @@
 > یعنی مهرانه که از خونه وصل شده (احتمالاً چون برق/سیستم قبلی قطع شده). این
 > سند رو کامل بخون، بعد وضعیت زنده‌ی بیلد رو چک کن (پایین) و از همون‌جا ادامه بده.
 
+## ⬇️ DOWNLOADS (GitHub Releases) — latest state 2026-09-25
+
+| What | Release | Status |
+|---|---|---|
+| **TWRP fix9** (img + Odin tar) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/twrp-fix9 | ✅ tested on device: boot, GUI, touch, adb, brightness OK |
+| LOS 22.2 build #1 (base) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/22.2-20260924 | ✅ flashed & boots. Camera broken. /data must be **f2fs** |
+| LOS 22.2 build #2 (camera fix + KernelSU) | _pending — building on server since 2026-09-25 17:29 UTC_ | ⏳ |
+
+TWRP sha256: img `a62808c766c1db21b779f7804eb59eb834ec30c4aec43cc69c64e461ec808aeb`,
+odin tar `6c40ca38bf1fa33b14ffb3fb53691926c8e66a637a46e60ec84573f4a2980331`.
+Local copy: `D:\star2lte-backup\twrp-fix9-working\`.
+Note: the TWRP release is the **tested fix9 image**, not a fresh Actions rebuild
+(fix2..fix9 were ramdisk/DT repacks with samsung_pack.py on top of Actions
+build #37; a clean rebuild would need those patches folded into the TWRP
+device tree first, and would be untested).
+
 ## Mission
 
 Build **LineageOS 22.2 (Android 15) for star2lte** (Samsung Galaxy S9+ Exynos
