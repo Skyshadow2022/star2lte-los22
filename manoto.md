@@ -25,7 +25,17 @@ SSH key to reach the build server.
 |---|---|---|
 | **TWRP fix9** (img + Odin tar) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/twrp-fix9 | ✅ tested on device: boot, GUI, touch, adb, brightness OK |
 | LOS 22.2 build #1 (base) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/22.2-20260924 | ✅ flashed & boots. Camera broken. /data must be **f2fs** |
-| **LOS 22.2 build #2** (camera fix + KernelSU-Next, KPROBES hook) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/22.2-20260925-build2 | ⚠️ built & verified in-zip, **NOT yet flashed/tested on device** |
+| **LOS 22.2 build #2** (camera fix + KernelSU-Next, KPROBES hook) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/22.2-20260925-build2 | ✅ **2026-09-26: installed & working on device — root (KernelSU-Next) OK, camera OK, GApps installed** |
+
+**⚠️ TWRP fix9 does NOT boot anymore now that LOS 22 is installed** — stuck on
+the logo; Mehran reflashed the old official TWRP (recovery-twrp-old.tar) and uses
+that. fix9 was built for PE13 (ramdisk carries PE13's Trustonic/keymaster@3.0
+decrypt stack + a PE13-era fstab). Diagnosis in progress: fix9 has a `dbgdump`
+service that writes `/cache/recovery/dbg-state-*.txt`, `dbg-dmesg-*.txt`,
+`dbg-recovery-*.log` at t+10/30/60/120 s even during a hung boot → read them from
+LOS with `adb shell su -c 'ls -la /cache/recovery'` and pull.
+Hypothesis (unverified): TWRP's startup FBE auto-decrypt blocks waiting on the
+keymaster/keystore path against LOS-created (keymaster 4) keys.
 
 Build #2 direct zip: https://github.com/Skyshadow2022/star2lte-los22/releases/download/22.2-20260925-build2/lineage-22.2-20260925-UNOFFICIAL-star2lte.zip
 Build #2 sha256: zip `d95735a334a837587a9d48e556a083b00a40b2e4bf0e8d78ff7a72fdc9e645e1`,
