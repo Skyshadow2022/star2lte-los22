@@ -26,10 +26,12 @@ LineageOS 22.2 boots · **camera works** · **KernelSU-Next = Working** (root) �
 **MindTheGapps 15 + Google Play work**. Details and lessons: "UPDATE 4" at the bottom.
 
 **Open items, in order:**
-1. 💸 **DELETE the Hetzner server now** — no longer needed (SUSFS will be a
-   kernel-only build, see below). console.hetzner.cloud → project → server
-   **`star2lte-build`** (`5.161.80.56`, label `purpose=los22-build`) → **Delete**.
-   Or, from a session that has the Hetzner MCP: `server_delete`.
+1. ✅ **Hetzner server DELETED** 2026-09-25 22:57 UTC (id 167250876,
+   `star2lte-build`, 5.161.80.56; delete action 657628219119727; SSH no longer
+   answers). The LOS source tree is gone with it — everything needed is in the
+   GitHub Releases. A future full-ROM rebuild needs a fresh server + repo sync
+   (~2-3 h); SUSFS is planned as a kernel-only build on GitHub Actions instead.
+   All "LIVE BUILD SERVER" sections below are now historical.
 2. 🔐 Revoke the old GitHub PAT (it is inside the old session transcript).
 3. 📱 Restore data from `D:\star2lte-backup\2026-09-23\` (WORK PC only).
 4. 🛡️ **SUSFS** (Mehran wants it — hiding root from banking apps). Plan: build
