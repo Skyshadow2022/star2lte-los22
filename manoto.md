@@ -252,3 +252,55 @@ Do NOT mix susfs4ksu patches with KernelSU-Next.
    /data — no re-format needed since /data is already f2fs). Verify root via the
    KernelSU-Next manager app + `adb shell su`.
 4. Then tackle SUSFS (C).
+
+---
+
+## UPDATE 3 — 2026-09-25 (KernelSU-Next 4.9 compat loop; switched hook mode)
+
+Continuing (B) from Update 2. Additional 4.9 compat fixes applied on the server
+inside `~/los/kernel/samsung/exynos9810/KernelSU-Next/kernel/` (all compile errors,
+fixed one per rebuild):
+
+1. ✅ **All** `#include <linux/sched/*.h>` (signal, task, task_stack, **user**, …)
+   → `#include <linux/sched.h>` — do it in one sweep, e.g.
+   `grep -rl 'linux/sched/' . | xargs sed -i -E 's#<linux/sched/[a-z_]+\.h>#<linux/sched.h>#'`
+   (`app_profile.c` needed `sched/user.h`, missed in the first pass).
+2. ✅ `kvmalloc` → `#include "compat/kernel_compat.h"` in `manager/apk_sign.c`.
+3. ✅ `<linux/compiler_types.h>` → `<linux/compiler.h>`.
+4. ✅ `kernel_read()` / `kernel_write()` signature (changed in 4.14) → calls in
+   **4 files** switched to the `ksu_kernel_read_compat` / `ksu_kernel_write_compat`
+   wrappers from `compat/kernel_compat.h`.
+
+### BLOCKER hit: SYSCALL_TABLE_HOOK is not usable on 4.9
+```
+syscall_table_hook.c:36: #error "syscall table hook requires kernel >= 4.17 (pt_regs syscall ABI)"
+```
+arm64 syscall wrappers only take `struct pt_regs *` from 4.17 on. So the
+defconfig was switched to the **kprobes hook** (tracepoint + kretprobe); arm64
+selects `HAVE_SYSCALL_TRACEPOINTS`, so it is available on 4.9:
+```
+CONFIG_KPROBES=y
+CONFIG_KSU=y
+CONFIG_KSU_KPROBES_HOOK=y
+# CONFIG_KSU_SYSCALL_TABLE_HOOK is not set
+# CONFIG_KSU_MANUAL_HOOK is not set
+```
+A kernel rebuild (`/root/kbuild.sh` → `~/kbuild.log`) was started with this
+config; **its result is not yet recorded here.**
+
+### If KPROBES_HOOK fails (compile error OR boots but no root / bootloop)
+Fallback = **CONFIG_KSU_MANUAL_HOOK** — the documented path for non-GKI kernels
+(kernelsu.org → "Integrate for non-GKI"): add the `ksu_handle_*` calls by hand in
+`fs/exec.c` (do_execveat_common), `fs/open.c` (faccessat), `fs/read_write.c`
+(vfs_read), `fs/stat.c` (vfs_statx/newfstatat), `drivers/input/input.c`
+(input_handle_event), plus `devpts` if the KSU-Next legacy branch asks for it.
+Disable KPROBES afterwards. Kprobe hooks on old non-GKI kernels are known to be
+flaky at runtime even when they compile — if the phone boots but `su` is missing,
+go straight to manual hooks rather than debugging kprobes.
+
+### TODO
+- Export all KernelSU-Next edits as a patch so they survive the server:
+  `cd ~/los/kernel/samsung/exynos9810 && git add -A && git diff --cached > /root/ksu-next-4.9.patch`
+  (plus `cd KernelSU-Next && git diff > /root/ksu-next-compat.patch`), and the libhwjpeg
+  edit: `cd ~/los/hardware/samsung_slsi-linaro/graphics && git diff > /root/libhwjpeg-1arg-ctor.patch`.
+  Then commit them to this repo under `patches/`.
