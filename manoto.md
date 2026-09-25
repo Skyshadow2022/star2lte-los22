@@ -217,26 +217,36 @@ This emits `C1Eb` so the blob links; keeps `C1Ebj` for source. (We also left
 `check_elf_files: false` on libexynoscamera3 in vendor/samsung/star2lte/Android.bp
 as belt-and-suspenders — harmless.)
 
-### (B) KernelSU (root) — KernelSU-Next LEGACY, syscall-table hook (non-GKI 4.9)
+### (B) KernelSU (root) — KernelSU-Next LEGACY, KPROBES hook (non-GKI 4.9)
+**STATUS 2026-09-25 12:26 UTC: kernel with KernelSU COMPILES — `mka bootimage`
+"build completed successfully", new boot.img 33388560 B. Not yet flashed/tested.**
 Kernel dir: `~/los/kernel/samsung/exynos9810/`
 1. `curl -LSs https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh | bash -s next`
    then in `KernelSU-Next/`: `git checkout legacy` (v3.2.0-legacy). This gives
    `drivers/kernelsu -> ../KernelSU-Next/kernel` + Makefile/Kconfig wiring.
-   Legacy supports non-GKI via **CONFIG_KSU_SYSCALL_TABLE_HOOK** (no kprobes, no
-   manual VFS hooks — it auto-patches fs/namespace.c + selinux at build time).
+   ⚠️ **SYSCALL_TABLE_HOOK does NOT work on 4.9** — hard `#error "syscall table
+   hook requires kernel >= 4.17 (pt_regs syscall ABI)"`. Use **KPROBES_HOOK**
+   (arm64 4.9 selects HAVE_SYSCALL_TRACEPOINTS, so it's available once KPROBES=y).
 2. defconfig `arch/arm64/configs/exynos9810-star2lte_defconfig` append:
    ```
+   CONFIG_KPROBES=y
    CONFIG_KSU=y
    # CONFIG_KSU_MANUAL_HOOK is not set
-   CONFIG_KSU_SYSCALL_TABLE_HOOK=y
+   # CONFIG_KSU_SYSCALL_TABLE_HOOK is not set
+   CONFIG_KSU_KPROBES_HOOK=y
    ```
-3. **4.9 header/API compat fixes inside `KernelSU-Next/kernel/`** (KSU-Next targets
-   newer kernels; each was a compile error we fixed, expect maybe a few more):
-   - all `#include <linux/sched/{signal,task,task_stack}.h>` → `#include <linux/sched.h>`
+3. **4.9 header/API compat fixes inside `KernelSU-Next/kernel/`** (all done, compiles):
+   - ALL `#include <linux/sched/<anything>.h>` (signal, task, task_stack, user, types)
+     → `#include <linux/sched.h>`
    - `manager/apk_sign.c`: add `#include "compat/kernel_compat.h"` after `#include "util.h"`
      (provides the <4.12 `kvmalloc` shim already in that header).
    - all `#include <linux/compiler_types.h>` → `#include <linux/compiler.h>` (4.13 split)
-   - (iterate: `mka bootimage`, read `~/kbuild.log` for the next missing symbol/header.)
+   - raw `kernel_write(`/`kernel_read(` → `ksu_kernel_write_compat(`/`ksu_kernel_read_compat(`
+     (4.9 has old signatures) in runtime/ksud_integration.c, manager/apk_sign.c,
+     manager/throne_tracker.c, policy/allowlist.c (+ ensure compat header included).
+   - Note: KPROBES on a Samsung kernel is untested here — if the phone bootloops
+     after flashing, fall back to KSU_MANUAL_HOOK (hand-add ksu_handle_* hooks in
+     fs/exec.c, fs/open.c, fs/read_write.c, fs/stat.c, drivers/input/input.c).
 
 ### (C) SUSFS — DEFERRED (not done yet)
 susfs4ksu's patches are written for OFFICIAL KernelSU and do NOT apply to
@@ -246,7 +256,13 @@ matching susfs kernel patch version) AFTER KernelSU root is confirmed working.
 Do NOT mix susfs4ksu patches with KernelSU-Next.
 
 ### Next steps
-1. Finish build #2 kernel compile (fix remaining 4.9 comapt errors) → `mka bootimage` clean.
+0. TWRP: the known-good TWRP (boot+GUI+adb+brightness all OK) is **fix9**, saved at
+   `D:\star2lte-backup\twrp-fix9-working\recovery-samsung-37-fix9.img`
+   (sha256 a62808c766c1db21b779f7804eb59eb834ec30c4aec43cc69c64e461ec808aeb).
+   Flash from any TWRP: `adb push` to /tmp, `dd of=/dev/block/by-name/RECOVERY bs=1048576`,
+   then read back the first N 2048-byte pages and compare sha.
+1. ✅ Build #2 kernel compile done (KPROBES hook). Optional: test boot.img alone first
+   (`dd` to BOOT from TWRP; keep build-#1 boot.img from D:\star2lte-rom\2026-09-24 as rollback).
 2. Full ROM: `/root/build.sh` (remember the debugfs unmount before zip).
 3. Upload new zip to a new release tag; download; flash (dirty over build #1 keeps
    /data — no re-format needed since /data is already f2fs). Verify root via the
