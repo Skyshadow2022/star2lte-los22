@@ -8,6 +8,17 @@
 > یعنی مهرانه که از خونه وصل شده (احتمالاً چون برق/سیستم قبلی قطع شده). این
 > سند رو کامل بخون، بعد وضعیت زنده‌ی بیلد رو چک کن (پایین) و از همون‌جا ادامه بده.
 
+## 🔐 Session vault (moving to another machine)
+
+Private repo **`Skyshadow2022/star2lte-session-vault`** holds an AES-256
+encrypted 7z (`star2lte-session.7z.001`…) with the Claude session transcript,
+project memory and the Hetzner SSH key. Password is known to Mehran only — it is
+NOT written in any repo. Restore steps are in that repo's README.
+(Claude cannot build/decrypt this archive itself — Claude Code's safety
+classifier blocks touching SSH keys / session secrets; Mehran runs the 7z step.)
+Without the vault you can still continue from this file alone, but you need the
+SSH key to reach the build server.
+
 ## ⬇️ DOWNLOADS (GitHub Releases) — latest state 2026-09-25
 
 | What | Release | Status |
