@@ -19,23 +19,34 @@ classifier blocks touching SSH keys / session secrets; Mehran runs the 7z step.)
 Without the vault you can still continue from this file alone, but you need the
 SSH key to reach the build server.
 
-## ⬇️ DOWNLOADS (GitHub Releases) — latest state 2026-09-25
+## ✅ CURRENT STATE — 2026-09-26 (read this first)
+
+**Build #2 is on the phone and FULLY WORKING** (tested by Mehran on 2026-09-26):
+LineageOS 22.2 boots · **camera works** · **KernelSU-Next = Working** (root) ·
+**MindTheGapps 15 + Google Play work**. Details and lessons: "UPDATE 4" at the bottom.
+
+**Open items, in order:**
+1. 💸 **DELETE the Hetzner server now** — no longer needed (SUSFS will be a
+   kernel-only build, see below). console.hetzner.cloud → project → server
+   **`star2lte-build`** (`5.161.80.56`, label `purpose=los22-build`) → **Delete**.
+   Or, from a session that has the Hetzner MCP: `server_delete`.
+2. 🔐 Revoke the old GitHub PAT (it is inside the old session transcript).
+3. 📱 Restore data from `D:\star2lte-backup\2026-09-23\` (WORK PC only).
+4. 🛡️ **SUSFS** (Mehran wants it — hiding root from banking apps). Plan: build
+   **only the kernel** on GitHub Actions (fits the free runner, no server),
+   repack it into build #2's boot.img, flash just BOOT. Rollback = build #2
+   boot.img. First try KernelSU-Next's own per-app "Umount modules"; SUSFS if
+   apps still detect root. Needs a susfs variant matched to KernelSU-Next
+   legacy v3.2.0 on 4.9 (susfs4ksu patches do NOT apply — see section C).
+
+## ⬇️ DOWNLOADS (GitHub Releases) — latest state 2026-09-26
 
 | What | Release | Status |
 |---|---|---|
-| **TWRP fix9** (img + Odin tar) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/twrp-fix9 | ✅ tested on device: boot, GUI, touch, adb, brightness OK |
-| LOS 22.2 build #1 (base) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/22.2-20260924 | ✅ flashed & boots. Camera broken. /data must be **f2fs** |
-| **LOS 22.2 build #2** (camera fix + KernelSU-Next, KPROBES hook) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/22.2-20260925-build2 | ✅ **2026-09-26: installed & working on device — root (KernelSU-Next) OK, camera OK, GApps installed** |
-
-**⚠️ TWRP fix9 does NOT boot anymore now that LOS 22 is installed** — stuck on
-the logo; Mehran reflashed the old official TWRP (recovery-twrp-old.tar) and uses
-that. fix9 was built for PE13 (ramdisk carries PE13's Trustonic/keymaster@3.0
-decrypt stack + a PE13-era fstab). Diagnosis in progress: fix9 has a `dbgdump`
-service that writes `/cache/recovery/dbg-state-*.txt`, `dbg-dmesg-*.txt`,
-`dbg-recovery-*.log` at t+10/30/60/120 s even during a hung boot → read them from
-LOS with `adb shell su -c 'ls -la /cache/recovery'` and pull.
-Hypothesis (unverified): TWRP's startup FBE auto-decrypt blocks waiting on the
-keymaster/keystore path against LOS-created (keymaster 4) keys.
+| **TWRP fix9** (img + Odin tar) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/twrp-fix9 | ⚠️ works on PE13, but **hangs on the TWRP logo now that /data is LOS FBE** (tries to decrypt). Don't use with LOS. |
+| LOS 22.2 build #1 (base) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/22.2-20260924 | superseded by build #2. Its boot.img = rollback kernel (no KSU) |
+| **LOS 22.2 build #2** (camera fix + KernelSU-Next, KPROBES hook) | https://github.com/Skyshadow2022/star2lte-los22/releases/tag/22.2-20260925-build2 | ✅ **flashed 2026-09-26, boots, camera + root + GApps OK** |
+| Recovery in use now | official **TWRP 3.7.0_9-0** from twrp.me (star2lte) | ✅ boots with LOS data; sideload works (no decrypt, not needed) |
 
 Build #2 direct zip: https://github.com/Skyshadow2022/star2lte-los22/releases/download/22.2-20260925-build2/lineage-22.2-20260925-UNOFFICIAL-star2lte.zip
 Build #2 sha256: zip `d95735a334a837587a9d48e556a083b00a40b2e4bf0e8d78ff7a72fdc9e645e1`,
@@ -44,7 +55,7 @@ recovery.img `6d9495d9a52bbcbaf5b10f4ff586b545beed0b4969cc65c73fe5340c76e4b3b3`.
 Verified before upload: zip's boot.img == KSU kernel (CONFIG_KSU=y, KPROBES_HOOK);
 vendor libhwjpeg.so (lib + lib64) exports `_ZN26ExynosJpegEncoderForCameraC1Eb`.
 
-**Next step for a new session:** phone into TWRP fix9 → `adb sideload` build #2 zip
+*(Historical — done on 2026-09-26, see UPDATE 4.)* **Next step was:** phone into TWRP fix9 → `adb sideload` build #2 zip
 (dirty flash over build #1, no format) → boot → check camera + KernelSU-Next
 manager. If bootloop: from TWRP `dd` build #1's boot.img (release 22.2-20260924,
 also at `D:\star2lte-rom\2026-09-24\boot.img`) to BOOT — that isolates the
@@ -323,3 +334,53 @@ Do NOT mix susfs4ksu patches with KernelSU-Next.
    /data — no re-format needed since /data is already f2fs). Verify root via the
    KernelSU-Next manager app + `adb shell su`.
 4. Then tackle SUSFS (C).
+
+---
+
+## UPDATE 4 — 2026-09-26 (build #2 FLASHED & WORKING, from the HOME PC)
+
+Continued from Mehran's home PC (Windows user `Mehran`). Session vault restored
+(7z archive in `star2lte-session-vault`; SSH key was NOT installed — the Claude
+Code safety classifier blocks it, Mehran has to copy it himself). Local copies of
+all images are in `G:\claude\star2lte-rom\` on the home PC (build2, build1
+boot.img rollback, twrp-fix9, MindTheGapps, KernelSU-Next manager apk; all sha256
+verified).
+
+### Result (tested on device by Mehran)
+- LOS 22.2 build #2 boots (~90 s), kernel `4.9.337-ies` built 2026-09-25.
+- **Camera works** → libhwjpeg 1-arg ctor fix (section A) confirmed.
+- **KernelSU-Next: "Working"** with KPROBES_HOOK → no need for MANUAL_HOOK.
+  Manager: **KernelSU-Next v3.2.0** (`com.rifsxd.ksunext`, official GitHub
+  release `KernelSU_Next_v3.2.0_33129-release.apk`) — matches the v3.2.0-legacy
+  kernel side. The old official KernelSU manager (`me.weishu.kernelsu`) is still
+  installed and useless with this kernel (can be uninstalled).
+- **MindTheGapps-15.0.0-arm64-20260915** installed dirty (after LOS had already
+  booted) — Play Store + GMS work, no crashes.
+
+### Lessons (do not re-hit these)
+1. **TWRP stuck on logo:** both our decrypt TWRPs (3.7.1_12-0 and fix9) hang on
+   the splash once /data holds LOS FBE (they wait on keymaster for PE13 keys).
+   *(Cause is a hypothesis, not yet log-confirmed. Evidence source if ever needed:
+   fix9's `dbgdump` service writes `/cache/recovery/dbg-{state,dmesg,recovery}-*`
+   at t+10/30/60/120 s even during a hung boot. Note: CACHE is now f2fs, and
+   dbgdump mounts it as ext4 — so on LOS it can no longer save these logs.)*
+   Windows shows only `Unknown USB Device (Device Descriptor Request Failed)`.
+   Fix: flash via Odin (AP slot, Auto Reboot OFF) either LOS recovery
+   (build2 `recovery.img` in a plain ustar tar) or **official TWRP 3.7.0_9-0**.
+   Download mode itself was fine (`SAMSUNG Mobile USB CDC Composite Device`).
+2. **LOS recovery sideload aborted** with `failed to set up expected mounts for
+   install` + `Invalid f2fs superblock on .../CACHE`: CACHE (600 MB, sda21) was
+   still **ext4** from PE13, LOS fstab wants **f2fs**. Fix (no user data):
+   `umount /cache; make_f2fs -f /dev/block/by-name/CACHE`.
+3. **Flash that worked:** official TWRP → `adb shell twrp sideload` → `adb sideload
+   lineage-22.2-20260925-UNOFFICIAL-star2lte.zip` → `script succeeded`, RC=0
+   (194 s), dirty over build #1, no data format.
+4. **MindTheGapps on official TWRP fails** with `Could not mount /mnt/system!`:
+   its installer reads the block device from `/etc/recovery.fstab` in AOSP
+   format, but TWRP's fstab is `mountpoint fstype device`. Fix (RAM only, until
+   reboot): back up `/etc/recovery.fstab`, drop its `/system` line, append
+   `/dev/block/platform/11120000.ufs/by-name/SYSTEM /system ext4 ro wait`, then
+   sideload the GApps zip → `/mnt/system mounted … Done!`, RC=0.
+5. Git Bash on Windows rewrites `/sdcard/...` for adb → use `MSYS_NO_PATHCONV=1`.
+6. Claude Code CLI installs to `%USERPROFILE%\.local\bin\claude.exe` but does
+   not add it to PATH — call it by full path or add it to the user PATH.
