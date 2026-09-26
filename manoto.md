@@ -33,6 +33,11 @@ Module tabs). Modules: mountify, ReZygisk, PlayIntegrityFork v18, Tricky Store.
 `patches/device_samsung_exynos9810-common/0001-*.patch` — **apply it in the next
 full ROM build**.
 
+**End of day 2026-09-26 (UPDATE 6, bottom):** also installed **bindhosts**
+(ad blocking, 187k domains + Persian list, active) and **ViPER4Android RE**
+(audio DSP, loaded by the audio HAL). 6 modules, all active, phone boots clean.
+Next session: see UPDATE 6 "Next steps".
+
 **Open items, in order:**
 1. ✅ **Hetzner server DELETED** 2026-09-25 22:57 UTC (id 167250876,
    `star2lte-build`, 5.161.80.56; delete action 657628219119727; SSH no longer
@@ -453,3 +458,55 @@ ReZygisk v1.0.0, PlayIntegrityFork v18, Tricky Store 1.4.1. All active.
 - Expectation once attestation works: BASIC should pass; DEVICE/STRONG still
   need an unrevoked hardware keybox (bootloader is unlocked). Banking apps: use
   KernelSU "Umount modules" per app, then SUSFS.
+
+---
+
+## UPDATE 6 — 2026-09-26 end of day (more modules; state to resume from)
+
+> فارسی: امروز bindhosts (حذف تبلیغات) و ViPER4Android (صدا) هم نصب شدن. همه‌ی
+> ۶ ماژول فعالن و گوشی سالم بوت می‌شه. قدم‌های بعدی پایین این بخشه.
+
+### Installed and verified (all via `ksud module install`, reboot, checks)
+| Module | Version | State |
+|---|---|---|
+| mountify (metamodule) | v2.0.4 | active |
+| ReZygisk | v1.0.0 | Monitor/64/32 ✅ |
+| PlayIntegrityFork | v18 | active (verdict still empty — attestation bug, UPDATE 5) |
+| Tricky Store | 1.4.1 | active; target.txt without vending/gms (backup target.txt.bak) |
+| **bindhosts** | v2.1.5 | `status: active`, mode 2 (plain bind mount; ReZygisk hides it from apps with Umount ON), **187,438 domains** blocked |
+| **ViPER4Android-RE** | v2.1.0 (non-AIDL) + app 2.1.0 | libv4a_re.so loaded by `android.hardware.audio.service` (32-bit HAL, /vendor/lib/soundfx) |
+
+- bindhosts: added `https://raw.githubusercontent.com/MasterKia/PersianBlocker/main/hosts`
+  to `/data/adb/bindhosts/sources.txt` (tapsell/yektanet blocked; google resolves).
+  Update lists with `su -c 'bindhosts --force-update'` (needs internet; VPN may be
+  needed in Iran). Optional daily auto-update: `bindhosts --enable-cron`.
+  Install gotcha: its Vol+ prompt leaves a `getevent -ql` running after
+  "installed successfully" — `pkill -x getevent` to release the adb session.
+- ViPER: zip sha256 f5978e28…3855, apk sha256 f28abe00…722a (both from
+  github.com/likelikeslike). Installer aborts only if an AIDL effect HAL exists
+  (none here).
+- ROM already has **Lineage charging control** (`vendor.lineage.health.IChargingControl`)
+  → no ACC module needed.
+
+### Research results worth keeping (multi-agent sweep, partly finished)
+- Skip: CPU/thermal "tweak" modules (no benefit on 9810/4.9, some dangerous),
+  AdGuardHome-for-root (hijacks port 53 away from the VPN apps, China defaults),
+  vpnhide (needs LSPosed), ACC (built-in charging control exists).
+- Conditional: **AsteriskNG** (github.com/Asterisk4Magisk/AsteriskNG, app, root
+  TPROXY Xray): no VPN icon/tun, per-app direct routing for bank apps, Iran
+  geo rules. Only if bank apps complain about the VPN. Replaces Happ.
+- NOT finished: root-hiding for banking apps (HMA-OSS zygisk, NoHello, …) and
+  utilities (bootloop protector, busybox, LSPosed). Resume these if a bank app
+  detects root.
+
+### Next steps (for Mehran / next session)
+1. On the phone: KernelSU Next → Superuser → **Chrome → Umount modules OFF**
+   (so bindhosts blocks ads in Chrome); keep it **ON** for Blu, Tejarat, pmb.
+2. ViPER app: **Global mode**, no root grant; disable LineageOS AudioFX.
+3. Settings → Battery → **Charging control** → 80%.
+4. Remove `"Bash(adb shell:*)"` from `C:\Users\Mehran\.claude\settings.json`
+   (added only for the /efs/DAK test).
+5. Revoke the old GitHub PAT (still open).
+6. Later: SUSFS kernel build (fix uname "-dirty": `.scmversion` +
+   KBUILD_BUILD_USER), keymaster patch in the next full ROM build, and the
+   unfinished root-hiding research if banks detect root.
