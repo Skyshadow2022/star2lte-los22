@@ -1,0 +1,51 @@
+From 126819ac824940b27bfb3ac1f395d7e7fee2ef39 Mon Sep 17 00:00:00 2001
+From: Skyshadow2022 <mehran2galaxy@gmail.com>
+Date: Sat, 26 Sep 2026 04:52:02 +0330
+Subject: [PATCH] exynos9810-common: let keymaster read its attestation keys
+
+AOSP's android.hardware.keymaster@3.0-service.rc runs the HAL as
+nobody/drmrpc, but Samsung's libkeymaster2_mdfpp reads the factory
+attestation keys from /efs/DAK (system:system 0640), so every attest_key
+fails with -1000 and Play Integrity gets no device verdict. Override the
+service with group system added; sepolicy already allows the read.
+---
+ common.mk                                    |  1 +
+ configs/init/vendor.keymaster-3-0.samsung.rc | 14 ++++++++++++++
+ 2 files changed, 15 insertions(+)
+ create mode 100644 configs/init/vendor.keymaster-3-0.samsung.rc
+
+diff --git a/common.mk b/common.mk
+index eccfbad..99d276d 100644
+--- a/common.mk
++++ b/common.mk
+@@ -133,6 +133,7 @@ PRODUCT_COPY_FILES += \
+     $(COMMON_PATH)/configs/init/init.samsung.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.samsung.rc \
+     $(COMMON_PATH)/configs/init/init.stune.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.stune.rc \
+     $(COMMON_PATH)/configs/init/ueventd.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc \
++    $(COMMON_PATH)/configs/init/vendor.keymaster-3-0.samsung.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/vendor.keymaster-3-0.samsung.rc \
+     $(COMMON_PATH)/configs/init/wifi.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/wifi.rc
+ 
+ # Keylayout
+diff --git a/configs/init/vendor.keymaster-3-0.samsung.rc b/configs/init/vendor.keymaster-3-0.samsung.rc
+new file mode 100644
+index 0000000..c21044a
+--- /dev/null
++++ b/configs/init/vendor.keymaster-3-0.samsung.rc
+@@ -0,0 +1,14 @@
++# Samsung's keymaster (libkeymaster2_mdfpp) reads its factory attestation keys
++# from /efs/DAK (system:system 0640). AOSP's default rc runs the service as
++# nobody/drmrpc, so every attest_key fails ("Cannot open file:
++# /efs/DAK/GAK_RSA.private ... Permission denied", -1000) and Play Integrity
++# returns an empty verdict. Keep uid nobody, add group system (read-only access
++# is already granted in sepolicy: r_dir_file(hal_keymaster_default, prov_efs_file)).
++# Parsed after android.hardware.keymaster@3.0-service.rc (alphabetical), so
++# `override` wins.
++service vendor.keymaster-3-0 /vendor/bin/hw/android.hardware.keymaster@3.0-service
++    override
++    interface android.hardware.keymaster@3.0::IKeymasterDevice default
++    class early_hal
++    user nobody
++    group drmrpc system
+-- 
+2.55.0.windows.3
+

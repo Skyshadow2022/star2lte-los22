@@ -25,6 +25,14 @@ SSH key to reach the build server.
 LineageOS 22.2 boots · **camera works** · **KernelSU-Next = Working** (root) ·
 **MindTheGapps 15 + Google Play work**. Details and lessons: "UPDATE 4" at the bottom.
 
+**Since then (UPDATE 5, bottom):** BOOT now runs the GitHub-Actions kernel with
+**KernelSU-Next v3.4.0-legacy (33294)** + manager v3.4.0 (full root, Superuser/
+Module tabs). Modules: mountify, ReZygisk, PlayIntegrityFork v18, Tricky Store.
+**Play Integrity = no verdict at all** — root cause is a ROM bug: keymaster runs as
+`nobody` and can't read `/efs/DAK` → hardware attestation broken. Fix is
+`patches/device_samsung_exynos9810-common/0001-*.patch` — **apply it in the next
+full ROM build**.
+
 **Open items, in order:**
 1. ✅ **Hetzner server DELETED** 2026-09-25 22:57 UTC (id 167250876,
    `star2lte-build`, 5.161.80.56; delete action 657628219119727; SSH no longer
@@ -386,3 +394,62 @@ verified).
 5. Git Bash on Windows rewrites `/sdcard/...` for adb → use `MSYS_NO_PATHCONV=1`.
 6. Claude Code CLI installs to `%USERPROFILE%\.local\bin\claude.exe` but does
    not add it to PATH — call it by full path or add it to the user PATH.
+
+---
+
+## UPDATE 5 — 2026-09-26 (new kernel, modules, Play Integrity root cause)
+
+### Kernel: KernelSU-Next v3.4.0-legacy via GitHub Actions (flashed, root OK)
+- Workflow `.github/workflows/kernel.yml` → rolling release **`kernel-ci`**
+  (boot img + Odin tar + kernel.config + build.log). Kernel-only: AOSP clang
+  r536225, ExyHyperBrick kernel @ lineage-22.2, KernelSU-Next tag
+  `v3.4.0-legacy`, KPROBES hook, `KSU_VERSION_OVERRIDE=33294` (= manager v3.4.0
+  versionCode). New Image is swapped into build #2's boot.img with
+  `tools/samsung_bootimg.py` (round-trip byte-identical; ramdisk + DT untouched).
+- Why the rebuild: build #2's kernel had KSU-Next v3.2.0-legacy but reported
+  **33004** (commit count miscounted on the server) → manager v3.2.0 hid the
+  Superuser/Module tabs ("version too low"), manager v3.1.0 sent app-profile v2
+  which the kernel rejects ("Unsupported profile version: 2").
+- CI lessons: `tools/ksu_legacy_4.9_fixes.sh` (sched/compiler_types headers,
+  raw kernel_read/write → ksu_*_compat, kvmalloc include). KernelSU-Next's Kbuild
+  **sed-patches kernel sources** (fs/namespace.c path_umount, seccomp.h,
+  selinux) at parse time — with -j that happens after those objects are built,
+  so the workflow builds `drivers/kernelsu/` first (it may stop on the generated
+  flask.h; fine), checks the patches landed, then builds Image.
+- Flashed by Mehran from official TWRP (Install Image → Boot). Rollback image:
+  build #2 `boot.img` (release 22.2-20260925-build2). Cosmetic: uname is now
+  `4.9.337-ies-gd54533f1546b-dirty` (no .ko modules on this device, harmless;
+  set `.scmversion`/KBUILD_BUILD_USER in the next build).
+
+### Modules (installed over adb root with `ksud module install`)
+mountify v2.0.4 (metamodule — KSU-Next 3.x mounts nothing without one),
+ReZygisk v1.0.0, PlayIntegrityFork v18, Tricky Store 1.4.1. All active.
+- PIF's autopif can't run on the phone: developer.android.com returns **403 from
+  Iran**. Crawl was done on the PC and fed to a copy of autopif4.sh with the crawl
+  section replaced (fingerprint: Pixel 9 tokay_beta Canary ZP11.260821.010,
+  patch 2026-09-05, expires ~2026-10-29).
+- Current PIF config (testing): `*api_level=25`, `spoofProvider=1`,
+  `spoofVendingSdk=1` (backup: `custom.pif.prop.strong-bak`). Tricky Store
+  `target.txt` without vending/gms (backup: `target.txt.bak`).
+
+### Play Integrity: empty verdict — ROM bug, fix is a device-tree patch
+- Checker JSON: no `deviceRecognitionVerdict`, everything `UNEVALUATED`.
+- With Tricky Store (default software keybox) → attestation signed by a
+  software keybox → empty verdict. Without it → Finsky:
+  `IntegrityKeyAttestationException: Failed to generate key pair`, and
+  keymaster_tee: `Cannot open file: /efs/DAK/GAK_RSA.private … Permission
+  denied` → attest_key -1000.
+- Cause: the ROM ships AOSP's `android.hardware.keymaster@3.0-service.rc`
+  (`user nobody`, `group drmrpc`), but Samsung's libkeymaster2_mdfpp reads its
+  factory attestation keys from `/efs/DAK` (`system:system 0640`). Sepolicy
+  already allows it (`r_dir_file(hal_keymaster_default, prov_efs_file)`).
+- **Fix (next full ROM build):** after `repo sync`, run
+  `git -C device/samsung/exynos9810-common am <repo>/patches/device_samsung_exynos9810-common/0001-*.patch`
+  — adds `vendor.keymaster-3-0.samsung.rc` with `override` and
+  `group drmrpc system` (uid stays nobody).
+- A runtime test (RAM bind-mount of a group-readable DAK copy) was blocked by
+  Claude Code's safety classifier ("Security Weaken") — needs Mehran's explicit
+  permission rule, or he runs it himself.
+- Expectation once attestation works: BASIC should pass; DEVICE/STRONG still
+  need an unrevoked hardware keybox (bootloader is unlocked). Banking apps: use
+  KernelSU "Umount modules" per app, then SUSFS.
