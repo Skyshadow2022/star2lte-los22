@@ -8,17 +8,6 @@
 > یعنی مهرانه که از خونه وصل شده (احتمالاً چون برق/سیستم قبلی قطع شده). این
 > سند رو کامل بخون، بعد وضعیت زنده‌ی بیلد رو چک کن (پایین) و از همون‌جا ادامه بده.
 
-## 🔐 Session vault (moving to another machine)
-
-Private repo **`Skyshadow2022/star2lte-session-vault`** holds an AES-256
-encrypted 7z (`star2lte-session.7z.001`…) with the Claude session transcript,
-project memory and the Hetzner SSH key. Password is known to Mehran only — it is
-NOT written in any repo. Restore steps are in that repo's README.
-(Claude cannot build/decrypt this archive itself — Claude Code's safety
-classifier blocks touching SSH keys / session secrets; Mehran runs the 7z step.)
-Without the vault you can still continue from this file alone, but you need the
-SSH key to reach the build server.
-
 ## ✅ CURRENT STATE — 2026-09-26 (read this first)
 
 **Build #2 is on the phone and FULLY WORKING** (tested by Mehran on 2026-09-26):
@@ -45,7 +34,6 @@ Next session: see UPDATE 6 "Next steps".
    GitHub Releases. A future full-ROM rebuild needs a fresh server + repo sync
    (~2-3 h); SUSFS is planned as a kernel-only build on GitHub Actions instead.
    All "LIVE BUILD SERVER" sections below are now historical.
-2. 🔐 Revoke the old GitHub PAT (it is inside the old session transcript).
 3. 📱 Restore data from `D:\star2lte-backup\2026-09-23\` (WORK PC only).
 4. 🛡️ **SUSFS** (Mehran wants it — hiding root from banking apps). Plan: build
    **only the kernel** on GitHub Actions (fits the free runner, no server),
@@ -112,10 +100,6 @@ manifest (`.repo-local-manifests/star2lte.xml`) and the GitHub Actions workflow
 - **Hetzner server** name `star2lte-build`, type **cpx41** (8 vCPU, 16 GB RAM,
   240 GB disk), Ubuntu 22.04, location Ashburn (ash). Label `purpose=los22-build`.
 - **IP: `5.161.80.56`** · SSH as **root**.
-- **SSH key:** `C:\Users\PAV\.ssh\id_ed25519` (this is the Hetzner key
-  `mehran-main`; its pubkey comment is `mehran-vps`). ⚠️ This key file lives on
-  the **WORK PC**. From the home PC you must bring this key to reach the server.
-- Connect: `ssh -i <path-to>/id_ed25519 root@5.161.80.56`
 - **Build lives in a `tmux` session named `build`.** Source: `~/los`. Log:
   `~/build.log`. Output ROM (when done): `~/los/out/target/product/star2lte/`.
 - Swap: a 24 GB `/swapfile` (needed so 16 GB RAM survives the soong analysis
@@ -127,7 +111,7 @@ manifest (`.repo-local-manifests/star2lte.xml`) and the GitHub Actions workflow
 
 ### Check live build status (run these)
 ```bash
-ssh -i <id_ed25519> root@5.161.80.56 '
+ssh root@5.161.80.56 '
   tmux has-session -t build && echo RUNNING || echo STOPPED
   grep -oE "\[ *[0-9]+% [0-9]+/[0-9]+\]" ~/build.log | tail -1
   grep -iE "FAILED:|BUILD EXIT|Unresolved symbol|ninja: build stopped" ~/build.log | tail -3
@@ -163,7 +147,7 @@ Re-attach the build console: `ssh -t ... 'tmux attach -t build'` (Ctrl-b d to de
 1. Create a **GitHub Release** on `Skyshadow2022/star2lte-los22` and upload from
    the server (fast datacenter→GitHub link): `lineage-*.zip`, `boot.img`,
    `recovery.img` (LineageOS recovery), plus a `SHA256SUMS`. LOS zip is < 2 GB so
-   it fits GitHub's asset limit. Use the token (below) for the upload.
+   it fits GitHub's asset limit.
 2. Give Mehran the release link. He downloads the ~2 GB zip from GitHub.
 3. **DELETE the Hetzner server** to stop billing (server name `star2lte-build`,
    label `purpose=los22-build`). Use the Hetzner MCP `server_delete`, or ask
@@ -195,12 +179,8 @@ Rationale for doing base-first: never validated this tree boots; adding an
 untested KSU+SUSFS 4.9 patch on an unproven base makes boot failures impossible
 to isolate (same trap as the earlier TWRP saga).
 
-## Secrets & other machines (paths, NOT contents — repo is public)
+## Other machines
 
-- **GitHub token:** `C:\Users\PAV\Desktop\tokenGh.txt` (on the WORK PC; classic
-  PAT `ghp_...`, full control). Needed for release upload + pushes. ⚠️ Bring it to
-  the home PC, or Mehran should **rotate it** and use a new one. It should be
-  rotated regardless (it has sat in a plaintext desktop file).
 - **Data backup** (pre-migration, from the current PE13 phone): on the WORK PC at
   `D:\star2lte-backup\2026-09-23\` — photos (563), SMS (12045), contacts, call
   log, Telegram + Instagram (data + apks). Has its own `README-restore.md`. This
@@ -208,17 +188,6 @@ to isolate (same trap as the earlier TWRP saga).
 - Phone: SM-G965F, currently on PixelExperience 13 (FBE), rooted with KernelSU,
   adb over USB. A working stock **omni TWRP 3.7.0** is on its RECOVERY partition;
   Odin rescue tar is `C:\Users\PAV\Desktop\recovery-twrp-old.tar` (work PC).
-
-## If continuing from the HOME PC
-
-You likely will NOT have: the SSH key, the GitHub token, the D:\ backup, or the
-phone plugged in. So from home you can: read/understand state, check the build
-via SSH **only if the key was brought over**, and advise. To actually drive the
-server or push to GitHub from home, Mehran must bring `id_ed25519` and the token
-(or generate a new token and add a new SSH key to the server via the Hetzner
-console). The Hetzner MCP (server create/delete/list) is tied to the Claude
-account config, so it may be available from home even without the local files —
-use it to inspect or delete the server.
 
 ---
 
@@ -269,7 +238,7 @@ libexynoscamera3 to let it build; camera fails at runtime. **Build #2 fixes it.*
 ## Build #2 — camera fix + KernelSU (SUSFS deferred). ALL CHANGES ARE ON THE
 ## HETZNER SERVER ONLY (not committed). Reproduce them if the server is lost.
 
-Server: `5.161.80.56` root, key `C:\Users\PAV\.ssh\id_ed25519`. Source `~/los`.
+Server (now deleted): `5.161.80.56` root. Source `~/los`.
 Build kernel-only fast: `tmux new-session -d -s kbuild "/root/kbuild.sh"`
 (kbuild.sh = source build/envsetup.sh; breakfast star2lte userdebug; mka bootimage).
 Full ROM: `/root/build.sh` (mka bacon). Remember `umount -l /sys/kernel/debug`
@@ -342,9 +311,7 @@ Do NOT mix susfs4ksu patches with KernelSU-Next.
 1. ✅ Build #2 kernel compile done (KPROBES hook). Optional: test boot.img alone first
    (`dd` to BOOT from TWRP; keep build-#1 boot.img from D:\star2lte-rom\2026-09-24 as rollback).
 2. ✅ Full ROM built 2026-09-25 (`/root/build.sh`; debugfs unmounted first).
-   Upload trick: create the release locally with `gh`, then upload assets FROM THE
-   SERVER with curl to uploads.github.com (token piped over ssh stdin into a 600
-   file, deleted after — script `/root/up2.sh`). Never put the token in the repo.
+   Assets were uploaded from the server straight to the GitHub release.
 3. ✅ Uploaded to release `22.2-20260925-build2`. TODO: flash (dirty over build #1 keeps
    /data — no re-format needed since /data is already f2fs). Verify root via the
    KernelSU-Next manager app + `adb shell su`.
@@ -354,9 +321,7 @@ Do NOT mix susfs4ksu patches with KernelSU-Next.
 
 ## UPDATE 4 — 2026-09-26 (build #2 FLASHED & WORKING, from the HOME PC)
 
-Continued from Mehran's home PC (Windows user `Mehran`). Session vault restored
-(7z archive in `star2lte-session-vault`; SSH key was NOT installed — the Claude
-Code safety classifier blocks it, Mehran has to copy it himself). Local copies of
+Continued from Mehran's home PC (Windows user `Mehran`). Local copies of
 all images are in `G:\claude\star2lte-rom\` on the home PC (build2, build1
 boot.img rollback, twrp-fix9, MindTheGapps, KernelSU-Next manager apk; all sha256
 verified).
@@ -506,7 +471,6 @@ ReZygisk v1.0.0, PlayIntegrityFork v18, Tricky Store 1.4.1. All active.
 3. Settings → Battery → **Charging control** → 80%.
 4. Remove `"Bash(adb shell:*)"` from `C:\Users\Mehran\.claude\settings.json`
    (added only for the /efs/DAK test).
-5. Revoke the old GitHub PAT (still open).
 6. Later: SUSFS kernel build (fix uname "-dirty": `.scmversion` +
    KBUILD_BUILD_USER), keymaster patch in the next full ROM build, and the
    unfinished root-hiding research if banks detect root.
