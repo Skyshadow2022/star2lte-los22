@@ -96,12 +96,23 @@ jobs:
           export PATH="$HOME/clang/bin:$PATH"
           clang --version | head -1
           set -o pipefail
-          make -j"$(nproc)" O=out ARCH=arm64 \
-            CC=clang HOSTCC=clang HOSTCXX=clang++ \
-            CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
-            LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-            KSU_VERSION_OVERRIDE="$KSU_VERSION" \
-            Image 2>&1 | tee ../build.log
+          flags="-j$(nproc) O=out ARCH=arm64 CC=clang HOSTCC=clang HOSTCXX=clang++
+            CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
+            LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
+            KSU_VERSION_OVERRIDE=$KSU_VERSION"
+          # KernelSU-Next's Kbuild sed-patches kernel sources (fs/namespace.c
+          # path_umount backport, include/linux/seccomp.h, selinux hooks.c) when
+          # make first descends into drivers/kernelsu. With -j that happens
+          # after fs/namespace.o etc. are already built (run 3: undefined
+          # path_umount), and a late seccomp.h change would leave objects with
+          # different struct layouts. So: apply the patches first, check them,
+          # then build everything from the patched tree.
+          make $flags drivers/kernelsu/ 2>&1 | tee ../build.log
+          grep -q '^int path_umount' fs/namespace.c
+          grep -q 'path_umount' fs/internal.h
+          grep -q 'atomic_t filter_count;' include/linux/seccomp.h
+          git status --short fs include security kernel | tee -a ../build.log
+          make $flags Image 2>&1 | tee -a ../build.log
           grep -E 'KernelSU-Next (version|tag)' ../build.log || true
 
       - name: Repack build #2 boot.img with the new kernel
