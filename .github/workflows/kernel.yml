@@ -41,9 +41,11 @@ jobs:
           sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev cpio \
             binutils-aarch64-linux-gnu lz4 python3 >/dev/null
 
-      - name: Cache clang
+      # restore/save split so the ~320 MB toolchain is cached even when the
+      # kernel build fails (actions/cache only saves on job success).
+      - name: Restore clang
         id: clang-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/clang
           key: ${{ env.CLANG }}
@@ -60,6 +62,13 @@ jobs:
           ls -l clang.tgz
           tar -xzf clang.tgz -C ~/clang && rm clang.tgz
           ~/clang/bin/clang --version | head -1
+
+      - name: Save clang
+        if: steps.clang-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/clang
+          key: ${{ env.CLANG }}
 
       - name: Kernel source + KernelSU-Next
         run: |
@@ -107,7 +116,10 @@ jobs:
           # path_umount), and a late seccomp.h change would leave objects with
           # different struct layouts. So: apply the patches first, check them,
           # then build everything from the patched tree.
-          make $flags drivers/kernelsu/ 2>&1 | tee ../build.log
+          # Stage 1 may stop on generated headers (security/selinux/flask.h
+          # does not exist yet); the Kbuild sed patches run at parse time,
+          # before any compile, so only the checks below matter here.
+          make $flags drivers/kernelsu/ 2>&1 | tee ../build.log || echo "stage 1 exited non-zero (expected: flask.h not generated yet)"
           grep -q '^int path_umount' fs/namespace.c
           grep -q 'path_umount' fs/internal.h
           grep -q 'atomic_t filter_count;' include/linux/seccomp.h
