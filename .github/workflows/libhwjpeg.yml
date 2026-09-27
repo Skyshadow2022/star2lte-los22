@@ -91,10 +91,10 @@ jobs:
         working-directory: /mnt/aosp
         run: |
           cd "$GRAPHICS_PATH"
-          git apply --verbose "$GITHUB_WORKSPACE/repo-config/patches/hardware_samsung_slsi-linaro_graphics/"*.patch
+          git apply --verbose "$GITHUB_WORKSPACE/repo-config/patches/hardware_samsung_slsi-linaro_graphics/0001-libhwjpeg-star2lte-camera-fix.patch"
           echo "== changed:"; git --no-pager diff --stat
           grep -q "Correcting inconsistent Exif image" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
-          grep -c "ExynosJpegEncoderForCamera::ExynosJpegEncoderForCamera(bool bBTBComp)$" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
+          grep -q ": ExynosJpegEncoderForCamera(bBTBComp, 0) {}" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
 
       - name: Build libhwjpeg
         working-directory: /mnt/aosp
@@ -114,15 +114,26 @@ jobs:
         working-directory: /mnt/aosp
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist"
-          cp out/target/product/${DEVICE}/vendor/lib/libhwjpeg.so   "$GITHUB_WORKSPACE/dist/libhwjpeg-arm.so"
-          cp out/target/product/${DEVICE}/vendor/lib64/libhwjpeg.so "$GITHUB_WORKSPACE/dist/libhwjpeg-arm64.so"
+          got=0
+          for pair in "lib libhwjpeg-arm.so" "lib64 libhwjpeg-arm64.so"; do
+            set -- $pair
+            src="out/target/product/${DEVICE}/vendor/$1/libhwjpeg.so"
+            if [ -f "$src" ]; then
+              cp "$src" "$GITHUB_WORKSPACE/dist/$2"; got=1
+              echo "collected $1/libhwjpeg.so -> $2"
+            else
+              echo "::warning::$1/libhwjpeg.so not built"
+            fi
+          done
+          [ $got -eq 1 ] || { echo "::error::no libhwjpeg.so produced"; exit 1; }
           cd "$GITHUB_WORKSPACE/dist"
           for f in libhwjpeg-arm.so libhwjpeg-arm64.so; do
+            [ -f "$f" ] || continue
             echo "== $f"; file "$f"
-            # the blob needs the 1-arg ctor symbol C1Eb
+            # C1Eb = the 1-arg ctor symbol the libexynoscamera3 blob may import
             readelf -sW "$f" | grep -c ExynosJpegEncoderForCameraC1Eb || true
           done
-          sha256sum libhwjpeg-arm.so libhwjpeg-arm64.so > SHA256SUMS
+          sha256sum libhwjpeg-*.so > SHA256SUMS
           cat SHA256SUMS
 
       - name: Publish to "camera-ci" release
