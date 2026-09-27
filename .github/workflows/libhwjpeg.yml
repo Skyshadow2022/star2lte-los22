@@ -1,0 +1,130 @@
+name: star2lte libhwjpeg (camera photo fix)
+
+# Builds ONLY the vendor library hardware/samsung_slsi-linaro/graphics/libhwjpeg
+# with our camera patch (1-arg ctor for the libexynoscamera3 blob + relaxed Exif
+# dimension check so photo capture no longer fails). Publishes the arm and arm64
+# libhwjpeg.so to the rolling "camera-ci" release. The .so is dropped onto the
+# device by replacing /vendor/lib*/libhwjpeg.so directly (no ROM reflash, no
+# module mount that banking apps could detect).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/libhwjpeg.yml
+      - patches/hardware_samsung_slsi-linaro_graphics/**
+
+permissions:
+  contents: write
+
+env:
+  MANIFEST_BRANCH: lineage-22.2
+  DEVICE: star2lte
+  AOSP: /mnt/aosp
+  GRAPHICS_PATH: hardware/samsung_slsi-linaro/graphics
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: repo-config
+
+      - name: Free up disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+            /usr/lib/jvm /usr/share/swift 2>/dev/null || true
+          sudo docker image prune --all --force 2>/dev/null || true
+          echo "== / after cleanup"; df -h /
+          echo "== /mnt (build target)"; df -h /mnt
+          sudo mkdir -p "$AOSP" && sudo chown "$USER" "$AOSP"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq git git-lfs gnupg flex bison build-essential \
+            zip curl zlib1g-dev libc6-dev-i386 libncurses5 x11proto-core-dev libx11-dev \
+            lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig \
+            python3 python-is-python3 rsync ccache libssl-dev >/dev/null
+          mkdir -p ~/bin
+          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          git config --global user.name "star2lte ci"
+          git config --global user.email "ci@example.com"
+          git config --global color.ui false
+
+      - name: repo init + local manifest
+        working-directory: /mnt/aosp
+        run: |
+          repo init --depth=1 -u https://github.com/LineageOS/android.git \
+            -b "$MANIFEST_BRANCH" --git-lfs --no-clone-bundle
+          mkdir -p .repo/local_manifests
+          cp "$GITHUB_WORKSPACE/repo-config/.repo-local-manifests/${DEVICE}.xml" \
+            .repo/local_manifests/star2lte.xml
+
+      - name: repo sync (shallow)
+        working-directory: /mnt/aosp
+        run: |
+          for i in 1 2 3 4 5; do
+            repo sync -c -j4 --no-clone-bundle --optimized-fetch --prune \
+              --force-sync --no-tags && break
+            echo "repo sync attempt $i failed; retrying"; sleep 30
+          done
+          echo "== disk after sync"; df -h /mnt
+          test -d "$GRAPHICS_PATH/base/libhwjpeg" || { echo "::error::graphics tree missing"; exit 1; }
+
+      - name: Apply camera patch
+        working-directory: /mnt/aosp
+        run: |
+          cd "$GRAPHICS_PATH"
+          git apply --verbose "$GITHUB_WORKSPACE/repo-config/patches/hardware_samsung_slsi-linaro_graphics/"*.patch
+          echo "== changed:"; git --no-pager diff --stat
+          grep -q "Correcting inconsistent Exif image" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
+          grep -c "ExynosJpegEncoderForCamera::ExynosJpegEncoderForCamera(bool bBTBComp)$" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
+
+      - name: Build libhwjpeg
+        working-directory: /mnt/aosp
+        run: |
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
+          set +u
+          source build/envsetup.sh
+          lunch lineage_${DEVICE}-userdebug || breakfast ${DEVICE} userdebug
+          set -u
+          m libhwjpeg -j"$(nproc)" 2>&1 | tee /tmp/build.log
+          echo "== find built libs"
+          find out/target/product/${DEVICE}/vendor -name 'libhwjpeg.so' -exec ls -l {} \;
+          find out -path '*libhwjpeg_intermediates*/libhwjpeg.so' -exec ls -l {} \; | head
+
+      - name: Collect + verify
+        working-directory: /mnt/aosp
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp out/target/product/${DEVICE}/vendor/lib/libhwjpeg.so   "$GITHUB_WORKSPACE/dist/libhwjpeg-arm.so"
+          cp out/target/product/${DEVICE}/vendor/lib64/libhwjpeg.so "$GITHUB_WORKSPACE/dist/libhwjpeg-arm64.so"
+          cd "$GITHUB_WORKSPACE/dist"
+          for f in libhwjpeg-arm.so libhwjpeg-arm64.so; do
+            echo "== $f"; file "$f"
+            # the blob needs the 1-arg ctor symbol C1Eb
+            readelf -sW "$f" | grep -c ExynosJpegEncoderForCameraC1Eb || true
+          done
+          sha256sum libhwjpeg-arm.so libhwjpeg-arm64.so > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish to "camera-ci" release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: repo-config
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          tail -c 400000 /tmp/build.log > "$GITHUB_WORKSPACE/dist/build.log" 2>/dev/null || echo "no build log" > "$GITHUB_WORKSPACE/dist/build.log"
+          echo "run ${{ github.run_id }} status ${{ job.status }} sha ${{ github.sha }}" > "$GITHUB_WORKSPACE/dist/STATUS.txt"
+          gh release view camera-ci >/dev/null 2>&1 || gh release create camera-ci --prerelease \
+            --title "Camera libhwjpeg (star2lte)" --notes "Patched libhwjpeg.so — replace /vendor/lib*/libhwjpeg.so on device. See manoto.md."
+          gh release upload camera-ci "$GITHUB_WORKSPACE"/dist/* --clobber

@@ -1,0 +1,72 @@
+Subject: [PATCH] libhwjpeg: star2lte camera fix (1-arg ctor + relax exif dims)
+
+diff --git a/base/libhwjpeg/include/ExynosJpegEncoderForCamera.h b/base/libhwjpeg/include/ExynosJpegEncoderForCamera.h
+--- a/base/libhwjpeg/include/ExynosJpegEncoderForCamera.h
++++ b/base/libhwjpeg/include/ExynosJpegEncoderForCamera.h
+@@ -101,7 +101,10 @@ protected:
+     virtual bool EnsureFormatIsApplied();
+ public:
+ #if HWJPEG_ANDROID_VERSION >= 10
+-    ExynosJpegEncoderForCamera(bool bBTBComp = true, unsigned int index = 0);
++    ExynosJpegEncoderForCamera(bool bBTBComp, unsigned int index);
++    // star2lte: explicit 1-arg ctor so the proprietary libexynoscamera3
++    // blob linking ExynosJpegEncoderForCamera(bool) (symbol C1Eb) resolves.
++    ExynosJpegEncoderForCamera(bool bBTBComp = true);
+ #else
+     ExynosJpegEncoderForCamera(bool bBTBComp = true);
+ #endif
+diff --git a/base/libhwjpeg/ExynosJpegEncoderForCamera.cpp b/base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
+--- a/base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
++++ b/base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
+@@ -119,6 +119,14 @@ ExynosJpegEncoderForCamera::ExynosJpegEncoderForCamera(bool bBTBComp)
+     ALOGI("ExynosJpegEncoderForCamera Created: %p, ION %d", this, m_fdIONClient);
+ }
+ 
++#if HWJPEG_ANDROID_VERSION >= 10
++// star2lte: the proprietary libexynoscamera3 blob links against the 1-arg
++// constructor ExynosJpegEncoderForCamera(bool) (mangled C1Eb). Provide it as
++// a delegating constructor so the blob resolves at runtime.
++ExynosJpegEncoderForCamera::ExynosJpegEncoderForCamera(bool bBTBComp)
++        : ExynosJpegEncoderForCamera(bBTBComp, 0) {}
++#endif
++
+ ExynosJpegEncoderForCamera::~ExynosJpegEncoderForCamera()
+ {
+     delete m_pAppWriter;
+@@ -243,18 +251,31 @@ bool ExynosJpegEncoderForCamera::ProcessExif(char *base, size_t limit,
+     getSize(reinterpret_cast<int *>(&width), reinterpret_cast<int *>(&height));
+ 
+     if (exifInfo) {
++        // star2lte: the blob may pass image/thumbnail dimensions that do not
++        // match what was configured on the encoder, which aborts capture and
++        // breaks photo saving (video is unaffected). The encoder already knows
++        // the real geometry, so correct the Exif fields instead of failing.
+         if ((exifInfo->width != width) || (exifInfo->height != height)) {
+-            ALOGE("Inconsistant image dimension: Exif %dx%d, Thumb %dx%d",
++            ALOGW("Correcting inconsistent Exif image dimension: Exif %dx%d -> %dx%d",
+                     exifInfo->width, exifInfo->height, width, height);
+-            return false;
++            exifInfo->width = width;
++            exifInfo->height = height;
+         }
+ 
+         if (exifInfo->enableThumb) {
+             if ((exifInfo->widthThumb != static_cast<uint32_t>(m_nThumbWidth)) ||
+                     (exifInfo->heightThumb != static_cast<uint32_t>(m_nThumbHeight))) {
+-                ALOGE("Inconsistant thumbnail information: Exif %dx%d, Thumb %dx%d",
+-                        exifInfo->widthThumb, exifInfo->heightThumb, m_nThumbWidth, m_nThumbHeight);
+-                return false;
++                if ((m_nThumbWidth >= 16) && (m_nThumbHeight >= 16)) {
++                    ALOGW("Correcting inconsistent Exif thumbnail: Exif %dx%d -> %dx%d",
++                            exifInfo->widthThumb, exifInfo->heightThumb,
++                            m_nThumbWidth, m_nThumbHeight);
++                    exifInfo->widthThumb = static_cast<uint32_t>(m_nThumbWidth);
++                    exifInfo->heightThumb = static_cast<uint32_t>(m_nThumbHeight);
++                } else {
++                    ALOGW("Disabling Exif thumbnail due to invalid size %dx%d",
++                            m_nThumbWidth, m_nThumbHeight);
++                    exifInfo->enableThumb = false;
++                }
+             }
+         }
+     }
