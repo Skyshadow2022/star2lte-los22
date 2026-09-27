@@ -71,9 +71,22 @@ jobs:
         run: |
           git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
           cd kernel
-          curl -fsSL "https://raw.githubusercontent.com/rsuntk/KernelSU/${KSU_BRANCH}/kernel/setup.sh" | bash -s "$KSU_BRANCH"
-          echo "== KernelSU checked out:"; git -C KernelSU log -1 --oneline || true
+          # Wire rsuntk KSU manually (setup.sh piped through curl|bash can fail
+          # silently and leave KSU unwired -> CONFIG_KSU_SUSFS never sets).
+          git clone --depth=1 -b "$KSU_BRANCH" "$KSU_REPO" KernelSU
+          ln -sf "$(realpath --relative-to=drivers KernelSU/kernel)" drivers/kernelsu
+          grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig || \
+            sed -i '/^endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          grep -q 'kernelsu/' drivers/Makefile || \
+            printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
+          echo "== assert KSU wired =="
+          test -e drivers/kernelsu/Kconfig || { echo "::error::drivers/kernelsu symlink broken"; exit 1; }
+          grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig || { echo "::error::Kconfig not sourced"; exit 1; }
+          grep -q 'kernelsu/' drivers/Makefile || { echo "::error::Makefile not wired"; exit 1; }
+          grep -q 'config KSU_SUSFS' drivers/kernelsu/Kconfig || { echo "::error::rsuntk Kconfig has no KSU_SUSFS"; exit 1; }
+          git -C KernelSU log -1 --oneline
           grep -m1 KSU_VERSION KernelSU/kernel/Makefile || true
+          echo "OK: rsuntk KSU wired"
 
       - name: Apply SUSFS kernel patch (fs-layer)
         working-directory: kernel
@@ -124,8 +137,14 @@ jobs:
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           EOF
           make O=out ARCH=arm64 olddefconfig
-          echo "== effective KSU/SUSFS config =="; grep -E '^CONFIG_(KPROBES|KSU[A-Z_]*)=' out/.config
-          grep -q '^CONFIG_KSU_SUSFS=y' out/.config || { echo "::error::CONFIG_KSU_SUSFS not set"; exit 1; }
+          echo "== effective KSU/SUSFS config ==" | tee "$GITHUB_WORKSPACE/diag.log"
+          grep -E '^(CONFIG_KSU|# CONFIG_KSU)' out/.config | tee -a "$GITHUB_WORKSPACE/diag.log"
+          echo "KPROBES=$(grep -E '^CONFIG_KPROBES=' out/.config)" | tee -a "$GITHUB_WORKSPACE/diag.log"
+          if ! grep -q '^CONFIG_KSU_SUSFS=y' out/.config; then
+            echo "::error::CONFIG_KSU_SUSFS not set — see diag.log in the susfs-ci release"
+            echo "KSU symbol in Kconfig tree:"; grep -rc 'config KSU_SUSFS' drivers/kernelsu/Kconfig | tee -a "$GITHUB_WORKSPACE/diag.log"
+            exit 1
+          fi
 
       - name: Build Image
         working-directory: kernel
@@ -167,6 +186,7 @@ jobs:
             [ -f build.log ] && tail -c 900000 build.log || echo "no build log (failed before compile)"; } > dist/build.log
           [ -f rejects-full.txt ] && cp rejects-full.txt dist/ || true
           [ -f susfs-apply.log ] && cp susfs-apply.log dist/ || true
+          [ -f diag.log ] && cp diag.log dist/ || true
           echo "run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} status: ${{ job.status }}" > dist/STATUS.txt
           gh release view susfs-ci >/dev/null 2>&1 || gh release create susfs-ci --prerelease \
             --title "Kernel CI (rsuntk KSU + SUSFS)" --notes "Rolling susfs kernel builds. Untested until noted in manoto.md."
