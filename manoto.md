@@ -474,3 +474,54 @@ ReZygisk v1.0.0, PlayIntegrityFork v18, Tricky Store 1.4.1. All active.
 6. Later: SUSFS kernel build (fix uname "-dirty": `.scmversion` +
    KBUILD_BUILD_USER), keymaster patch in the next full ROM build, and the
    unfinished root-hiding research if banks detect root.
+
+---
+
+## UPDATE 7 — 2026-09-27 (SUSFS working; root hidden from banking apps)
+
+> فارسی: امروز SUSFS ساخته و فلش شد. همه‌ی بانک‌ها (بلو، تجارت، ملت/دیما) دیگه
+> روت رو تشخیص نمی‌دن. فقط «بله» مونده. منیجر مدرن v3.x به‌خاطر یه port سنگین
+> کرنل فعلاً کنار گذاشته شد.
+
+### DONE: SUSFS root-hiding kernel (built on GitHub Actions, no server)
+- Workflow `.github/workflows/susfs.yml` → release **`susfs-ci`**. Recipe:
+  ExyHyperBrick kernel @ lineage-22.2 + **rsuntk/KernelSU branch
+  `deprecated/susfs-legacy`** (KSU_VERSION 12311, LSM/kprobe) + **simonpunk
+  susfs4ksu kernel-4.9 = SUSFS v1.5.5** fs-layer, KPROBES hook. Image swapped
+  into build #2 boot.img. Kernel `4.9.337-ies-gd54533f1546b` (no -dirty).
+- CI lessons: rsuntk susfs is ONLY on `deprecated/susfs-legacy` (maintained
+  legacy tags dropped it). Wire drivers/kernelsu manually (curl|bash setup.sh
+  fails silently). susfs 50_ patch rejects 2 files on lineage-22.2 (fdinfo.c,
+  stat.c — additive #ifdefs, harmless). The AUTO_ADD_SUS_KSU_DEFAULT_MOUNT block
+  lands at file scope in RKP-restructured do_mount() → `tools/susfs_namespace_fix.py`
+  moves it inside do_mount before dput_out.
+- On device (done 2026-09-27): flashed boot-rsuntk-susfs.img (backup of BOOT
+  taken first). **rsuntk manager** (me.weishu.kernelsu) shows **Working
+  <Non-GKI>**, Version 12311. Installed **sidex15 susfs module** (v1.5.2+_R28,
+  universal binary — works with v1.5.5). Manager updated to the latest compatible
+  **v1.0.5-83-legacy** (12340; kernel 12311 >= its min 11071).
+- RESULT: **all banking apps work** (Blu, Tejarat, Mellat/Dima). susfs
+  auto-hides KSU mounts + su (/system/bin/su hidden). Files on home PC:
+  `G:\claude\star2lte-rom\susfs\`. Rollback = build #2 boot.img.
+
+### PENDING
+1. **Bale (ir.nasim)** still blocks. Confirmed NOT the manager (disabling the
+   manager pkg didn't help). It detects ROM props: `ro.debuggable=1`,
+   `ro.build.tags=test-keys`, `ro.build.type=userdebug`,
+   `ro.boot.verifiedbootstate=orange`. Fix = a prop-spoof KSU module (resetprop
+   to release/user values). Not yet built.
+2. **Camera photo save** still broken (video OK). Fix ready:
+   `patches/hardware_samsung_slsi-linaro_graphics/0001-*.patch` (libhwjpeg
+   1-arg ctor + relax exif dims). Build workflow `.github/workflows/libhwjpeg.yml`
+   keeps hitting the free-runner disk limit for the full LOS tree sync
+   (maximize-build-space added, still WIP).
+3. **Modern manager (v3.x) DEFERRED.** Needs susfs v1.5.9 (rsuntk
+   susfs-rksu-master, KSU 32359, pairs with v3.0.0-30-legacy manager min-kernel
+   22000). v1.5.9's mount-id code uses the NEW ida API (ida_alloc/ida_free)
+   which 4.9 lacks → a deep, bootloop-risky port of the kernel mount-id
+   allocators. `.github/workflows/susfs-v3.yml` exists but is not worth finishing
+   for a UI upgrade. To resume: port the ~10 ida_alloc/ida_free sites in
+   mnt_alloc_id/mnt_free_id/mnt_alloc_group_id/mnt_release_group_id to the old
+   ida_pre_get/ida_get_new_above/ida_remove API, plus hand-merge 4 fs files
+   (mount.h, proc_namespace.c, stat.c, namespace.c) — disable SUS_PATH/
+   OPEN_REDIRECT/HIDE_KSU_SUSFS_SYMBOLS to skip namei.c/readdir.c/kallsyms.c.
