@@ -45,11 +45,12 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          # Minimal set that works on ubuntu-24.04; soong ships its own clang/JDK,
+          # so the classic AOSP ncurses5/lib32 packages (dropped on 24.04) aren't needed.
           sudo apt-get update -qq
           sudo apt-get install -y -qq git git-lfs gnupg flex bison build-essential \
-            zip curl zlib1g-dev libc6-dev-i386 libncurses5 x11proto-core-dev libx11-dev \
-            lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig \
-            python3 python-is-python3 rsync ccache libssl-dev >/dev/null
+            zip unzip curl zlib1g-dev libssl-dev python3 python-is-python3 rsync ccache \
+            libxml2-utils xsltproc fontconfig >/dev/null
           mkdir -p ~/bin
           curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
           chmod a+x ~/bin/repo
