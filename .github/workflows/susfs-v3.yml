@@ -1,0 +1,182 @@
+name: star2lte kernel v3 (rsuntk rksu + SUSFS, modern manager)
+
+# Kernel build for the MODERN rsuntk manager line (v3.x): ExyHyperBrick kernel +
+# rsuntk/KernelSU susfs-rksu-master (KSU 32359, LSM hooks) + ShirkNeko susfs4ksu
+# kernel-4.9 (v1.5.9) fs-layer. Pairs with the rsuntk v3.0.0-30-legacy manager
+# (min kernel 22000). Publishes to "susfs-v3-ci". Rollback = the working
+# deprecated/susfs-legacy boot (susfs-ci / boot-rsuntk-susfs.img) or build #2.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/susfs-v3.yml
+
+permissions:
+  contents: write
+
+env:
+  KERNEL_REPO: https://github.com/ExyHyperBrick/android_kernel_samsung_exynos9810
+  KERNEL_BRANCH: lineage-22.2
+  DEFCONFIG: exynos9810-star2lte_defconfig
+  KSU_REPO: https://github.com/rsuntk/KernelSU
+  KSU_BRANCH: susfs-rksu-master
+  SUSFS_REPO: https://github.com/ShirkNeko/susfs4ksu.git
+  SUSFS_BRANCH: kernel-4.9
+  CLANG: clang-r536225
+  BASE_BOOT_TAG: 22.2-20260925-build2
+  BASE_BOOT_SHA256: 032a6912984e7072ae9a87f56608068a8e37297a154e82d3140b497facf65a14
+
+jobs:
+  kernel:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev cpio \
+            binutils-aarch64-linux-gnu lz4 python3 >/dev/null
+
+      - name: Restore clang
+        id: clang-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/clang
+          key: ${{ env.CLANG }}
+
+      - name: Fetch AOSP clang
+        if: steps.clang-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/clang
+          url="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/${CLANG}.tar.gz"
+          for i in 1 2 3 4 5; do
+            curl -fL --retry 3 -o clang.tgz "$url" && gzip -t clang.tgz && break
+            echo "clang download attempt $i failed"; rm -f clang.tgz; sleep 20
+          done
+          tar -xzf clang.tgz -C ~/clang && rm clang.tgz
+          ~/clang/bin/clang --version | head -1
+
+      - name: Save clang
+        if: steps.clang-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/clang
+          key: ${{ env.CLANG }}
+
+      - name: Kernel source + rsuntk KernelSU (rksu)
+        run: |
+          git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
+          cd kernel
+          exec > >(tee "$GITHUB_WORKSPACE/diag.log") 2>&1
+          set -x +e
+          git clone --depth=1 -b "$KSU_BRANCH" "$KSU_REPO" KernelSU; echo "clone rc=$?"
+          ls -la KernelSU/kernel 2>&1 | head -5
+          rel=$(realpath --relative-to=drivers KernelSU/kernel); echo "rel=$rel"
+          ln -sf "$rel" drivers/kernelsu
+          grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig || \
+            sed -i '/^endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          grep -q 'kernelsu/' drivers/Makefile || \
+            printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
+          echo "== checks =="
+          ls -la drivers/kernelsu
+          echo "Kconfig-has-KSU_SUSFS: $(grep -c 'config KSU_SUSFS' drivers/kernelsu/Kconfig)"
+          echo "hook files: $(ls KernelSU/kernel/*hook* 2>/dev/null | tr '\n' ' ')"
+          git -C KernelSU log -1 --oneline
+          grep -m1 KSU_VERSION KernelSU/kernel/Makefile
+          set -e
+          test -e drivers/kernelsu/Kconfig
+          grep -q 'config KSU_SUSFS' drivers/kernelsu/Kconfig
+          echo "OK: rsuntk rksu wired"
+
+      - name: Apply SUSFS kernel patch (fs-layer, v1.5.9)
+        working-directory: kernel
+        run: |
+          git clone --depth=1 -b "$SUSFS_BRANCH" "$SUSFS_REPO" ../susfs4ksu
+          echo "susfs version:"; grep SUSFS_VERSION ../susfs4ksu/kernel_patches/include/linux/susfs.h
+          cp ../susfs4ksu/kernel_patches/fs/* fs/
+          cp ../susfs4ksu/kernel_patches/include/linux/* include/linux/
+          patch -p1 --fuzz=3 --no-backup-if-mismatch < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch | tee ../susfs-apply.log || true
+          echo "== rejects =="; find . -name '*.rej' | tee ../rejects.txt
+          if [ -s ../rejects.txt ]; then
+            for r in $(cat ../rejects.txt); do echo "----- $r"; cat "$r"; done | tee ../rejects-full.txt
+          fi
+          grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile || echo 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
+          # do_mount AUTO_ADD fix (no-op if this susfs has no AUTO_ADD block)
+          python3 "$GITHUB_WORKSPACE/tools/susfs_namespace_fix.py" fs/namespace.c || echo "namespace fix skipped (no AUTO_ADD block in this susfs)"
+
+      - name: Remove -dirty from kernel version
+        working-directory: kernel
+        run: |
+          sed -i 's/ -dirty//g; s/printf %s -dirty/printf %s/g' scripts/setlocalversion || true
+          sed -i 's/echo "\$res"/res="${res%-dirty}"; echo "$res"/' scripts/setlocalversion || true
+
+      - name: defconfig
+        working-directory: kernel
+        run: |
+          make O=out ARCH=arm64 "$DEFCONFIG"
+          # susfs-rksu-master uses LSM/setuid hooks (no kprobe/manual choice).
+          # Enable only the susfs features this KSU + ShirkNeko v1.5.9 both provide
+          # (no AUTO_ADD, no SUS_MAP here).
+          cat >> out/.config <<'EOF'
+          CONFIG_KSU=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          EOF
+          make O=out ARCH=arm64 olddefconfig
+          echo "== effective KSU/SUSFS config ==" | tee "$GITHUB_WORKSPACE/diag.log"
+          grep -E '^(CONFIG_KSU|# CONFIG_KSU|CONFIG_SECURITY=)' out/.config | tee -a "$GITHUB_WORKSPACE/diag.log"
+          grep -q '^CONFIG_KSU_SUSFS=y' out/.config || { echo "::error::CONFIG_KSU_SUSFS not set"; exit 1; }
+
+      - name: Build Image
+        working-directory: kernel
+        run: |
+          export PATH="$HOME/clang/bin:$PATH"
+          set -o pipefail
+          flags="-j$(nproc) O=out ARCH=arm64 CC=clang HOSTCC=clang HOSTCXX=clang++
+            CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
+            LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip"
+          make $flags drivers/kernelsu/ 2>&1 | tee ../build.log || echo "stage 1 non-zero (may be expected)"
+          make $flags Image 2>&1 | tee -a ../build.log
+          ls -l out/arch/arm64/boot/Image
+
+      - name: Repack build #2 boot.img
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$BASE_BOOT_TAG" --repo "${{ github.repository }}" -p boot.img -O base-boot.img
+          echo "$BASE_BOOT_SHA256  base-boot.img" | sha256sum -c
+          python3 tools/samsung_bootimg.py repack base-boot.img kernel/out/arch/arm64/boot/Image boot.img
+          python3 tools/samsung_bootimg.py info boot.img
+          strings kernel/out/arch/arm64/boot/Image | grep -m1 'Linux version'
+          mkdir -p dist
+          cp boot.img dist/boot-rksu-susfs-v3.img
+          tar --format=ustar -C dist -cf dist/boot-rksu-susfs-v3-odin.tar --transform 's/.*/boot.img/' boot-rksu-susfs-v3.img
+          cp kernel/out/.config dist/kernel.config
+          (cd dist && sha256sum boot-rksu-susfs-v3.img boot-rksu-susfs-v3-odin.tar > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: Publish to "susfs-v3-ci" release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          { echo "run ${{ github.run_number }} (${{ github.run_id }}) status ${{ job.status }} sha ${{ github.sha }}"
+            [ -f build.log ] && tail -c 900000 build.log || echo "no build log (failed before compile)"; } > dist/build.log
+          [ -f rejects-full.txt ] && cp rejects-full.txt dist/ || true
+          [ -f diag.log ] && cp diag.log dist/ || true
+          echo "run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} status: ${{ job.status }}" > dist/STATUS.txt
+          gh release view susfs-v3-ci >/dev/null 2>&1 || gh release create susfs-v3-ci --prerelease \
+            --title "Kernel CI v3 (rsuntk rksu + SUSFS, modern manager)" --notes "Rolling builds for the modern rsuntk v3.x manager. Untested until noted in manoto.md."
+          gh release upload susfs-v3-ci dist/* --clobber
