@@ -22,7 +22,10 @@ env:
   DEFCONFIG: exynos9810-star2lte_defconfig
   KSU_REPO: https://github.com/rsuntk/KernelSU
   KSU_BRANCH: susfs-rksu-master
-  SUSFS_REPO: https://github.com/ShirkNeko/susfs4ksu.git
+  # v1.5.9 (ShirkNeko) rejects 7 fs files on lineage-22.2; simonpunk v1.5.5 only
+  # rejects 2 (already solved). susfs-rksu-master reads SUSFS_VERSION dynamically,
+  # so try pairing it with v1.5.5 (SUS_MAP disabled) to reuse the proven fs work.
+  SUSFS_REPO: https://gitlab.com/simonpunk/susfs4ksu.git
   SUSFS_BRANCH: kernel-4.9
   CLANG: clang-r536225
   BASE_BOOT_TAG: 22.2-20260925-build2
@@ -126,6 +129,7 @@ jobs:
           CONFIG_KSU_SUSFS_SUS_PATH=y
           CONFIG_KSU_SUSFS_SUS_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          # CONFIG_KSU_SUSFS_SUS_MAP is not set
           CONFIG_KSU_SUSFS_TRY_UMOUNT=y
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
