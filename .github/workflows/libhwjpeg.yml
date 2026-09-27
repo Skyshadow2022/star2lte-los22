@@ -32,16 +32,26 @@ jobs:
         with:
           path: repo-config
 
-      - name: Free up disk space
+      # Run 2 died during repo sync (ENOSPC): the full LOS 22.2 tree is bigger
+      # than /mnt alone. Merge / and /mnt into one big LVM volume mounted at
+      # $AOSP (~80 GB) so the shallow sync + out/ fit.
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@v10
+        with:
+          root-reserve-mb: 2048
+          temp-reserve-mb: 2048
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          build-mount-path: /mnt/aosp
+
+      - name: Prepare build dir
         run: |
-          df -h /
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
-            /usr/lib/jvm /usr/share/swift 2>/dev/null || true
-          sudo docker image prune --all --force 2>/dev/null || true
-          echo "== / after cleanup"; df -h /
-          echo "== /mnt (build target)"; df -h /mnt
-          sudo mkdir -p "$AOSP" && sudo chown "$USER" "$AOSP"
+          sudo chown -R "$USER" /mnt/aosp
+          df -h /mnt/aosp
 
       - name: Install build dependencies
         run: |
