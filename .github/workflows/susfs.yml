@@ -22,7 +22,9 @@ env:
   KERNEL_BRANCH: lineage-22.2
   DEFCONFIG: exynos9810-star2lte_defconfig
   KSU_REPO: https://github.com/rsuntk/KernelSU
-  KSU_BRANCH: susfs-legacy
+  # susfs lives only on rsuntk's deprecated/susfs-legacy branch (KSU_VERSION
+  # 12311); the maintained legacy tags dropped susfs. Deprecated but complete.
+  KSU_BRANCH: deprecated/susfs-legacy
   SUSFS_REPO: https://gitlab.com/simonpunk/susfs4ksu.git
   SUSFS_BRANCH: kernel-4.9
   CLANG: clang-r536225
