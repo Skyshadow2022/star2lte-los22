@@ -29,7 +29,9 @@
 #include <linux/string.h>
 #include <linux/security.h>
 #include <linux/path.h>
+#include <linux/mount.h>
 #include <linux/namei.h>
+#include <linux/syscalls.h>
 #include <linux/uaccess.h>
 #include <asm/uaccess.h>
 #include <linux/susfs.h>
