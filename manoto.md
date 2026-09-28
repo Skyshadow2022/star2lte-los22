@@ -525,3 +525,62 @@ ReZygisk v1.0.0, PlayIntegrityFork v18, Tricky Store 1.4.1. All active.
    ida_pre_get/ida_get_new_above/ida_remove API, plus hand-merge 4 fs files
    (mount.h, proc_namespace.c, stat.c, namespace.c) — disable SUS_PATH/
    OPEN_REDIRECT/HIDE_KSU_SUSFS_SYMBOLS to skip namei.c/readdir.c/kallsyms.c.
+
+---
+
+## UPDATE 8 — 2026-09-29 (susfs-v4: modern manager kernel BUILT; needs on-device test)
+
+> فارسی: کرنل «منیجر مدرن» ساخته شد. rksu مدرن (KSU 32359) + موتور SUSFS v1.5.5 + یک لایه‌ی
+> سازگاری که ABI نسخه v2 رو به v1.5.5 ترجمه می‌کنه. فلش نشده؛ قبل از فلش، بکاپ BOOT.
+
+### What was built (CI run 36492434053, success)
+- Workflow `.github/workflows/susfs-v3.yml` → release **`susfs-v3-ci`** →
+  **`boot-rksu-susfs-v4.img`** (+ Odin tar, kernel.config, SHA256SUMS).
+  Local copy: `G:\claude\star2lte-rom\susfs\v4\` (sha256 verified).
+- Kernel `4.9.337-ies-gd54533f1546b` (no -dirty), base = build #2 boot repack.
+- Recipe: ExyHyperBrick lineage-22.2 + rsuntk/KernelSU `susfs-rksu-master`
+  (KSU_VERSION 32359) + simonpunk susfs4ksu kernel-4.9 = **SUSFS v1.5.5**
+  fs-layer + `tools/rksu_susfs_compat.c` (v2→v1.5.5 ABI adapter).
+- Target manager: **rsuntk v3.2.2-10-legacy** (KernelSU_v3.2.2-10-legacy…apk,
+  versionCode 32490) — also grab-and-try KSUN manager support per its notes.
+- All 14 SUSFS configs on incl. the AUTO_ADD trio; SUS_MAP/SUS_SU explicitly off.
+
+### Why this architecture (research results, keep!)
+- KernelSU-Next v3.4.x (all tags incl. -legacy) has **no susfs at all** — grep
+  confirms zero KSU_SUSFS in kernel code. Dead end for hiding; don't retry.
+- rksu modern speaks the **susfs v2-era ABI**: handlers take `void __user **`,
+  structs carry `err`, CMD ids for path_loop/avc_log/sus_map, and it expects
+  the FS layer to provide `susfs_set_sid` + SID storage. simonpunk kernel-4.9
+  = v1.5.5 (old ida API); ShirkNeko kernel-4.9 = v1.5.9 (new ida API, MIS-APPLIES
+  on this tree: blocks land at file scope / inside m_hash — do not use; that's
+  what killed susfs-v3 runs).
+- Adapter (tools/rksu_susfs_compat.c): struct translation + set_fs(KERNEL_DS)
+  into renamed v1.5.5 entry points (susfs_*_impl via tools/rksu_compat_wire.py),
+  manager ABI (features/variant/version), restored `susfs_set_sid` +
+  `ksu_try_umount` (4-arg, sys_umount under KERNEL_DS) from the legacy branch.
+- Graceful no-ops (feature honestly unsupported): sus_path_loop,
+  set_i_state_on_external_dir, avc_log_spoofing, sus_map, reorder_mnt_id.
+- kstat/inotify spoof gate changed to `uid >= 10000` (SUSFS_MIN_USER_APP_UID)
+  because modern rksu never sets the old TASK_STRUCT_NON_ROOT_USER_APP_PROC bit.
+- rksu Kconfig lacks the AUTO_ADD trio → wire script re-adds them, else
+  olddefconfig silently drops the auto-hide.
+
+### CI lessons (5 runs)
+1. sucompat.c includes only susfs_def.h → declare proc-umounted API there too.
+2. rksu supercalls needs SUSFS_MAGIC 0xFAFAFAFA + CMD ids 0x55551/2/61 that
+   v1.5.5 predates.
+3. Link: engine needs `ksu_try_umount` (legacy core_hook.c).
+4. Shim needs linux/syscalls.h + linux/mount.h includes.
+
+### TODO on device (Mehran)
+1. Backup current BOOT (already have boot-current-backup.img) then flash
+   boot-rksu-susfs-v4.img (Odin tar available). Rollback = boot-rsuntk-susfs.img.
+2. Install rsuntk manager v3.2.2-10-legacy (32490). Check: Working, KSU 32359,
+   susfs variant shows NON-GKI + feature list from SHOW_ENABLED_FEATURES.
+3. Re-grant root to modules/apps in the new manager (allowlist may be fresh).
+4. Test banking apps (Blu, Tejarat, Mellat/Dima) + Bale (needs the prop-spoof
+   module — separate task).
+5. The sidex15 R28 module's `susfs` binary speaks the OLD single-pointer
+   supercall ABI — its manual sus_path/kstat adds will likely EFAULT now.
+   Kernel-auto hiding (SUS_MOUNT auto-add, try_umount via setuid hook) is what
+   carries the hiding; update module only if its 0x555d0 trigger is missed.
