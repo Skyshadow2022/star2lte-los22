@@ -1,10 +1,28 @@
-name: star2lte kernel v3 (rsuntk rksu + SUSFS, modern manager)
+name: star2lte kernel v4 (rsuntk rksu modern + SUSFS, v3.x manager)
 
 # Kernel build for the MODERN rsuntk manager line (v3.x): ExyHyperBrick kernel +
-# rsuntk/KernelSU susfs-rksu-master (KSU 32359, LSM hooks) + ShirkNeko susfs4ksu
-# kernel-4.9 (v1.5.9) fs-layer. Pairs with the rsuntk v3.0.0-30-legacy manager
-# (min kernel 22000). Publishes to "susfs-v3-ci". Rollback = the working
-# deprecated/susfs-legacy boot (susfs-ci / boot-rsuntk-susfs.img) or build #2.
+# rsuntk/KernelSU branch susfs-rksu-master (KSU 32359, LSM/setuid hooks) +
+# simonpunk susfs4ksu kernel-4.9 = SUSFS v1.5.5 fs-layer (the only 4.9-native
+# susfs; proven on this tree by the legacy build).
+#
+# rksu modern speaks the susfs v2-era ABI (void __user ** handlers, err-field
+# structs, new CMD ids) which no 4.9 susfs port provides. tools/ bridges it:
+#   - susfs_v155_fix.py     merges the 2 v1.5.5 patch rejects (stat.c,
+#                           fdinfo.c), gating the spoof on uid >= 10000
+#                           (v2-era check; nothing sets the old task bit).
+#   - rksu_susfs_compat.c   v2->v1.5.5 ABI adapter compiled into the kernelsu
+#                           module: struct translation + set_fs(KERNEL_DS)
+#                           calls into the renamed v1.5.5 entry points,
+#                           manager ABI (features/variant/version), graceful
+#                           no-ops for v2-only features (sus_path_loop,
+#                           sus_map, mnt-id reorder).
+#   - rksu_compat_wire.py   renames the colliding v1.5.5 entry points to
+#                           *_impl, appends the missing CMD ids + handler
+#                           declarations, wires the adapter into the module.
+#
+# Pairs with the rsuntk v3.2.2-10-legacy manager (kernel KSU 32359).
+# Publishes to "susfs-v3-ci". Rollback = the working deprecated/susfs-legacy
+# boot (susfs-ci / boot-rsuntk-susfs.img) or build #2.
 
 on:
   workflow_dispatch:
@@ -12,6 +30,9 @@ on:
     branches: [main]
     paths:
       - .github/workflows/susfs-v3.yml
+      - tools/susfs_v155_fix.py
+      - tools/rksu_susfs_compat.c
+      - tools/rksu_compat_wire.py
 
 permissions:
   contents: write
@@ -22,10 +43,9 @@ env:
   DEFCONFIG: exynos9810-star2lte_defconfig
   KSU_REPO: https://github.com/rsuntk/KernelSU
   KSU_BRANCH: susfs-rksu-master
-  # susfs-rksu-master needs v1.5.9 functions (susfs_set_current_proc_umounted),
-  # so v1.5.5 won't compile. Use ShirkNeko kernel-4.9 (v1.5.8/9) and hand-merge
-  # its 7 fs rejects on lineage-22.2 via tools/susfs_v159_fs_fix.py.
-  SUSFS_REPO: https://github.com/ShirkNeko/susfs4ksu.git
+  # simonpunk kernel-4.9 = SUSFS v1.5.5, 4.9-native (old ida API), the only
+  # susfs fs-layer proven to build AND boot on this tree.
+  SUSFS_REPO: https://gitlab.com/simonpunk/susfs4ksu.git
   SUSFS_BRANCH: kernel-4.9
   CLANG: clang-r536225
   BASE_BOOT_TAG: 22.2-20260925-build2
@@ -64,12 +84,10 @@ jobs:
 
       - name: Save clang
         if: steps.clang-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/clang
-          key: ${{ env.CLANG }}
+        run: |
+          echo "clang kept in ~/clang for this job; next run restores from cache key ${{ env.CLANG }}"
 
-      - name: Kernel source + rsuntk KernelSU (rksu)
+      - name: Kernel source + rsuntk KernelSU (rksu modern)
         run: |
           git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
           cd kernel
@@ -86,15 +104,13 @@ jobs:
           echo "== checks =="
           ls -la drivers/kernelsu
           echo "Kconfig-has-KSU_SUSFS: $(grep -c 'config KSU_SUSFS' drivers/kernelsu/Kconfig)"
-          echo "hook files: $(ls KernelSU/kernel/*hook* 2>/dev/null | tr '\n' ' ')"
-          git -C KernelSU log -1 --oneline
-          grep -m1 KSU_VERSION KernelSU/kernel/Makefile
+          grep -m1 KSU_VERSION drivers/kernelsu/Makefile
           set -e
           test -e drivers/kernelsu/Kconfig
           grep -q 'config KSU_SUSFS' drivers/kernelsu/Kconfig
-          echo "OK: rsuntk rksu wired"
+          echo "OK: rksu modern wired"
 
-      - name: Apply SUSFS kernel patch (fs-layer, v1.5.9)
+      - name: Apply SUSFS v1.5.5 kernel patch (fs-layer, 4.9-native)
         working-directory: kernel
         run: |
           git clone --depth=1 -b "$SUSFS_BRANCH" "$SUSFS_REPO" ../susfs4ksu
@@ -102,13 +118,23 @@ jobs:
           cp ../susfs4ksu/kernel_patches/fs/* fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* include/linux/
           patch -p1 --fuzz=3 --no-backup-if-mismatch < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch | tee ../susfs-apply.log || true
-          echo "== rejects =="; find . -name '*.rej' | tee ../rejects.txt
-          if [ -s ../rejects.txt ]; then
-            for r in $(cat ../rejects.txt); do echo "----- $r"; cat "$r"; done | tee ../rejects-full.txt
-          fi
-          grep -q '^obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile || echo 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
-          # do_mount AUTO_ADD fix (no-op if this susfs has no AUTO_ADD block)
-          python3 "$GITHUB_WORKSPACE/tools/susfs_namespace_fix.py" fs/namespace.c || echo "namespace fix skipped (no AUTO_ADD block in this susfs)"
+          echo "== rejects before fix =="; find . -name '*.rej' | tee ../rejects.txt || true
+          # Expected: fs/stat.c.rej + fs/notify/fdinfo.c.rej only; merged by the fix script.
+          python3 "$GITHUB_WORKSPACE/tools/susfs_v155_fix.py"
+          find . -name '*.rej' -delete
+          # AUTO_ADD usage block lands at file scope in RKP-restructured do_mount()
+          python3 "$GITHUB_WORKSPACE/tools/susfs_namespace_fix.py" fs/namespace.c
+
+      - name: Wire rksu modern ABI to the v1.5.5 engine
+        working-directory: kernel
+        run: |
+          python3 "$GITHUB_WORKSPACE/tools/rksu_compat_wire.py"
+          cp "$GITHUB_WORKSPACE/tools/rksu_susfs_compat.c" drivers/kernelsu/rksu_susfs_compat.c
+          echo "== sanity =="
+          grep -c '_impl' fs/susfs.c
+          grep -n 'rksu_susfs_compat.o' drivers/kernelsu/Makefile
+          grep -n 'CMD_SUSFS_ADD_SUS_PATH_LOOP' include/linux/susfs_def.h
+          test -e drivers/kernelsu/rksu_susfs_compat.c
 
       - name: Remove -dirty from kernel version
         working-directory: kernel
@@ -121,15 +147,17 @@ jobs:
         run: |
           make O=out ARCH=arm64 "$DEFCONFIG"
           # susfs-rksu-master uses LSM/setuid hooks (no kprobe/manual choice).
-          # Enable only the susfs features this KSU + ShirkNeko v1.5.9 both provide
-          # (no AUTO_ADD, no SUS_MAP here).
+          # Full v1.5.5 feature set except SUS_MAP (no 4.9 fs hook) and
+          # SUS_SU (unused by rksu, known-broken on 4.9).
           cat >> out/.config <<'EOF'
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SUSFS_SUS_PATH=y
           CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_MAP=y
           CONFIG_KSU_SUSFS_TRY_UMOUNT=y
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
@@ -141,6 +169,7 @@ jobs:
           echo "== effective KSU/SUSFS config ==" | tee "$GITHUB_WORKSPACE/diag.log"
           grep -E '^(CONFIG_KSU|# CONFIG_KSU|CONFIG_SECURITY=)' out/.config | tee -a "$GITHUB_WORKSPACE/diag.log"
           grep -q '^CONFIG_KSU_SUSFS=y' out/.config || { echo "::error::CONFIG_KSU_SUSFS not set"; exit 1; }
+          grep -q '^CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y' out/.config || { echo "::error::AUTO_ADD not set"; exit 1; }
 
       - name: Build Image
         working-directory: kernel
@@ -150,8 +179,7 @@ jobs:
           flags="-j$(nproc) O=out ARCH=arm64 CC=clang HOSTCC=clang HOSTCXX=clang++
             CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
             LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip"
-          make $flags drivers/kernelsu/ 2>&1 | tee ../build.log || echo "stage 1 non-zero (may be expected)"
-          make $flags Image 2>&1 | tee -a ../build.log
+          make $flags Image 2>&1 | tee ../build.log
           ls -l out/arch/arm64/boot/Image
 
       - name: Repack build #2 boot.img
@@ -164,10 +192,10 @@ jobs:
           python3 tools/samsung_bootimg.py info boot.img
           strings kernel/out/arch/arm64/boot/Image | grep -m1 'Linux version'
           mkdir -p dist
-          cp boot.img dist/boot-rksu-susfs-v3.img
-          tar --format=ustar -C dist -cf dist/boot-rksu-susfs-v3-odin.tar --transform 's/.*/boot.img/' boot-rksu-susfs-v3.img
+          cp boot.img dist/boot-rksu-susfs-v4.img
+          tar --format=ustar -C dist -cf dist/boot-rksu-susfs-v4-odin.tar --transform 's/.*/boot.img/' boot-rksu-susfs-v4.img
           cp kernel/out/.config dist/kernel.config
-          (cd dist && sha256sum boot-rksu-susfs-v3.img boot-rksu-susfs-v3-odin.tar > SHA256SUMS)
+          (cd dist && sha256sum boot-rksu-susfs-v4.img boot-rksu-susfs-v4-odin.tar > SHA256SUMS)
           cat dist/SHA256SUMS
 
       - name: Publish to "susfs-v3-ci" release
@@ -178,9 +206,9 @@ jobs:
           mkdir -p dist
           { echo "run ${{ github.run_number }} (${{ github.run_id }}) status ${{ job.status }} sha ${{ github.sha }}"
             [ -f build.log ] && tail -c 900000 build.log || echo "no build log (failed before compile)"; } > dist/build.log
-          [ -f rejects-full.txt ] && cp rejects-full.txt dist/ || true
           [ -f diag.log ] && cp diag.log dist/ || true
+          [ -f susfs-apply.log ] && cp susfs-apply.log dist/ || true
           echo "run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} status: ${{ job.status }}" > dist/STATUS.txt
           gh release view susfs-v3-ci >/dev/null 2>&1 || gh release create susfs-v3-ci --prerelease \
-            --title "Kernel CI v3 (rsuntk rksu + SUSFS, modern manager)" --notes "Rolling builds for the modern rsuntk v3.x manager. Untested until noted in manoto.md."
+            --title "Kernel CI v3 (rsuntk rksu + SUSFS, modern manager)" --notes "Rolling builds: rksu modern (KSU 32359) + SUSFS v1.5.5 fs-layer + v2 ABI adapter. Untested until noted in manoto.md."
           gh release upload susfs-v3-ci dist/* --clobber
