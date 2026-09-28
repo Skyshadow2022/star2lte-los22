@@ -51,6 +51,10 @@ DEF_H_APPEND = """
 #define TASK_STRUCT_PROC_UMOUNTED BIT(25)
 #define SUSFS_MIN_USER_APP_UID 10000 /* v2-era user-app check: uid >= 10000 */
 #define SUSFS_ENABLED_FEATURES_SIZE 8192
+/* sucompat.c only includes susfs_def.h (not susfs.h), so the proc-umounted
+ * API it calls must be declared here as well. */
+bool susfs_is_current_proc_umounted(void);
+void susfs_set_current_proc_umounted(void);
 /* ---- end rksu ABI append ---- */
 """
 
