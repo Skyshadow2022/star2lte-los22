@@ -561,3 +561,61 @@ void susfs_set_sid(const char *secctx_name, u32 *out_sid)
 	pr_info("susfs_compat: sid '%u' is set for secctx '%s'\n",
 		*out_sid, secctx_name);
 }
+
+/* ---------------- try_umount engine callback (from legacy rksu) --------- */
+
+/*
+ * The v1.5.5 engine's susfs_try_umount() performs each listed umount through
+ * this callback. The legacy branch carried it in core_hook.c; the modern line
+ * dropped it (v2's engine umounts internally). Restored here for 4.9, where
+ * the umount has to run with KERNEL_DS through sys_umount().
+ */
+extern bool susfs_is_mnt_devname_ksu(struct path *path);
+extern bool susfs_is_log_enabled __read_mostly;
+
+static int compat_sys_umount(const char *mnt, int flags)
+{
+	mm_segment_t old_fs;
+	int ret;
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+	ret = sys_umount((char __user *)mnt, flags);
+	set_fs(old_fs);
+	return ret;
+}
+
+void ksu_try_umount(const char *mnt, bool check_mnt, int flags, uid_t uid)
+{
+	struct path path;
+	int ret;
+	int err = kern_path(mnt, 0, &path);
+
+	if (err)
+		return;
+
+	if (path.dentry != path.mnt->mnt_root) {
+		/* not a root mountpoint, maybe umounted by others already */
+		path_put(&path);
+		return;
+	}
+
+	/* we are only interested in some specific mounts */
+	if (check_mnt && !susfs_is_mnt_devname_ksu(&path)) {
+		path_put(&path);
+		return;
+	}
+
+#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
+	if (susfs_is_log_enabled) {
+		pr_info("susfs: umounting '%s' for uid: %d\n", mnt, uid);
+	}
+#endif
+
+	/* path_put first, then umount by name (legacy ksu_umount_mnt semantics) */
+	path_put(&path);
+	ret = compat_sys_umount(mnt, flags);
+	if (ret) {
+		pr_info("susfs_compat: try_umount '%s' ret: %d\n", mnt, ret);
+	}
+}
