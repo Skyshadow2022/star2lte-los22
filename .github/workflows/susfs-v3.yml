@@ -130,10 +130,14 @@ jobs:
         run: |
           python3 "$GITHUB_WORKSPACE/tools/rksu_compat_wire.py"
           cp "$GITHUB_WORKSPACE/tools/rksu_susfs_compat.c" drivers/kernelsu/rksu_susfs_compat.c
+          # Modern rksu is manual-hook only: the kernel tree must call its
+          # ksu_handle_* handlers (reboot supercall, ksud.rc injection, su exec).
+          python3 "$GITHUB_WORKSPACE/tools/rksu_manual_hooks.py"
           echo "== sanity =="
           grep -c '_impl' fs/susfs.c
           grep -n 'rksu_susfs_compat.o' drivers/kernelsu/Makefile
           grep -n 'CMD_SUSFS_ADD_SUS_PATH_LOOP' include/linux/susfs_def.h
+          grep -c 'rksu manual hook' kernel/reboot.c fs/read_write.c fs/exec.c fs/open.c fs/stat.c
           test -e drivers/kernelsu/rksu_susfs_compat.c
 
       - name: Remove -dirty from kernel version
