@@ -362,6 +362,16 @@ void susfs_set_avc_log_spoofing(void __user **user_info)
 	pr_info("susfs_compat: avc_log_spoofing not supported (v1.5.5 fs layer)\n");
 }
 
+/*
+ * SUS_MAP has no 4.9 fs hook (its hiding lives in v2's task_mmu.c hunks), so
+ * the config is disabled in defconfig; this no-op keeps the kernel linkable
+ * if someone flips it back on.
+ */
+void susfs_add_sus_map(void __user **user_info)
+{
+	pr_info("susfs_compat: CMD_SUSFS_ADD_SUS_MAP not supported (v1.5.5 fs layer)\n");
+}
+
 /* ---------------- manager ABI: features / variant / version ---------------- */
 
 static int copy_config_to_buf(const char *config_string, char *buf_ptr,

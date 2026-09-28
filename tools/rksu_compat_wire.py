@@ -45,7 +45,11 @@ RENAMES = [
 
 DEF_H_APPEND = """
 /* ---- appended by tools/rksu_compat_wire.py (rksu susfs-rksu-master ABI) ---- */
+#define SUSFS_MAGIC 0xFAFAFAFA
+#define CMD_SUSFS_SET_ANDROID_DATA_ROOT_PATH 0x55551
+#define CMD_SUSFS_SET_SDCARD_ROOT_PATH 0x55552
 #define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55553
+#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS 0x55561
 #define CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING 0x60010
 #define CMD_SUSFS_ADD_SUS_MAP 0x60020
 #define TASK_STRUCT_PROC_UMOUNTED BIT(25)
@@ -82,6 +86,7 @@ void susfs_set_current_proc_umounted(void);
 void susfs_run_sus_path_loop(uid_t uid);
 void susfs_reorder_mnt_id(void);
 void susfs_set_sid(const char *secctx_name, u32 *out_sid);
+void susfs_add_sus_map(void __user **user_info);
 /* ---- end rksu ABI append ---- */
 """
 
