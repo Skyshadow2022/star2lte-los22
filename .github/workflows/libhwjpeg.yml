@@ -6,6 +6,12 @@ name: star2lte libhwjpeg (camera photo fix)
 # libhwjpeg.so to the rolling "camera-ci" release. The .so is dropped onto the
 # device by replacing /vendor/lib*/libhwjpeg.so directly (no ROM reflash, no
 # module mount that banking apps could detect).
+#
+# Disk: a shallow full-LOS 22.2 sync fills the entire ~80 GB runner, so after
+# the sync everything not needed for this one module is pruned: keep the build
+# system, clang/build-tools/go/jdk prebuilts, system/core (cutils/log headers),
+# bionic (uapi), device/generic (aosp_arm64 product bits), vendor/lineage
+# (envsetup sources it) and hardware/* (exynos/ion/mscl/acryl headers).
 
 on:
   workflow_dispatch:
@@ -20,7 +26,6 @@ permissions:
 
 env:
   MANIFEST_BRANCH: lineage-22.2
-  DEVICE: star2lte
   AOSP: /mnt/aosp
   GRAPHICS_PATH: hardware/samsung_slsi-linaro/graphics
 
@@ -32,9 +37,6 @@ jobs:
         with:
           path: repo-config
 
-      # Run 2 died during repo sync (ENOSPC): the full LOS 22.2 tree is bigger
-      # than /mnt alone. Merge / and /mnt into one big LVM volume mounted at
-      # $AOSP (~80 GB) so the shallow sync + out/ fit.
       - name: Maximize build space
         uses: easimon/maximize-build-space@v10
         with:
@@ -53,8 +55,6 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          # Minimal set that works on ubuntu-24.04; soong ships its own clang/JDK,
-          # so the classic AOSP ncurses5/lib32 packages (dropped on 24.04) aren't needed.
           sudo apt-get update -qq
           sudo apt-get install -y -qq git git-lfs gnupg flex bison build-essential \
             zip unzip curl zlib1g-dev libssl-dev python3 python-is-python3 rsync ccache \
@@ -73,7 +73,7 @@ jobs:
           repo init --depth=1 -u https://github.com/LineageOS/android.git \
             -b "$MANIFEST_BRANCH" --git-lfs --no-clone-bundle
           mkdir -p .repo/local_manifests
-          cp "$GITHUB_WORKSPACE/repo-config/.repo-local-manifests/${DEVICE}.xml" \
+          cp "$GITHUB_WORKSPACE/repo-config/.repo-local-manifests/star2lte.xml" \
             .repo/local_manifests/star2lte.xml
 
       - name: repo sync (shallow)
@@ -91,15 +91,16 @@ jobs:
         working-directory: /mnt/aosp
         run: |
           df -h /mnt | tail -1
-          # Keep ONLY what a standalone soong build of libhwjpeg needs:
-          # build system, clang/build-tools/go prebuilts, system/core (cutils/log
-          # headers), bionic (uapi), hardware/* (incl. samsung_slsi-linaro for
-          # exynos/ion/mscl/acryl headers). Everything else goes.
-          rm -rf .repo frameworks packages vendor kernel bootable test \
-            $(find device -mindepth 1 -maxdepth 1 ! -name generic -print 2>/dev/null) \
-            external prebuilts/gcc prebuilts/gdb prebuilts/ndk prebuilts/python \
-                        prebuilts/rust 2>/dev/null || true
-          find system -maxdepth 1 -mindepth 1 ! -name core -exec rm -rf {} + 2>/dev/null || true
+          rm -rf .repo frameworks packages kernel bootable test external \
+            prebuilts/gcc prebuilts/gdb prebuilts/ndk prebuilts/python prebuilts/rust
+          for d in device vendor system; do
+            keep=core; [ "$d" = device ] && keep=generic; [ "$d" = vendor ] && keep=lineage
+            [ -d "$d" ] || continue
+            for sub in "$d"/*/; do
+              b=$(basename "$sub")
+              [ "$b" = "$keep" ] || rm -rf "$sub"
+            done
+          done
           df -h /mnt | tail -1
 
       - name: Apply camera patch
