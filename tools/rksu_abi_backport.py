@@ -22,6 +22,7 @@ Run from the kernel root after the other wiring steps:
   python3 tools/rksu_abi_backport.py
 Idempotent: re-running is a no-op.
 """
+import re
 import sys
 
 MARK = "rksu abi backport"
@@ -90,31 +91,35 @@ static int do_new_get_allow_list_common(void __user *arg, bool allow)
 {
 	struct ksu_new_get_allow_list_cmd cmd;
 	int *arr = NULL;
+	int cnt = 0, total = 0;
 	int err = 0;
 
 	if (copy_from_user(&cmd, arg, sizeof(cmd)))
 		return -EFAULT;
 
-	if (cmd.count) {
-		arr = kmalloc(sizeof(int) * cmd.count, GFP_KERNEL);
+	cnt = cmd.count;
+	if (cnt) {
+		arr = kmalloc(sizeof(int) * cnt, GFP_KERNEL);
 		if (!arr)
 			return -ENOMEM;
 	}
 
-	if (!ksu_get_allow_list_bounded(arr, cmd.count, &cmd.count,
-					&cmd.total_count, allow)) {
+	if (!ksu_get_allow_list_bounded(arr, cnt, &cnt, &total, allow)) {
 		err = -EFAULT;
 		goto out;
 	}
+
+	cmd.count = (typeof(cmd.count))cnt;
+	cmd.total_count = (typeof(cmd.total_count))total;
 
 	if (copy_to_user(arg, &cmd, sizeof(cmd))) {
 		err = -EFAULT;
 		goto out;
 	}
 
-	if (cmd.count && copy_to_user(
+	if (cnt && copy_to_user(
 			&((struct ksu_new_get_allow_list_cmd __user *)arg)->uids,
-			arr, sizeof(int) * cmd.count)) {
+			arr, sizeof(int) * cnt)) {
 		err = -EFAULT;
 	}
 
@@ -170,7 +175,9 @@ SUPERCALLS_C_TABLE = """\t{ .cmd = KSU_IOCTL_NEW_GET_ALLOW_LIST, .name = \"NEW_G
 \t{ .cmd = KSU_IOCTL_GET_SULOG_FD, .name = \"GET_SULOG_FD\", .handler = do_get_sulog_fd, .perm_check = manager_or_root },
 """
 
-TABLE_ANCHOR = "\t// Sentinel\n\t{ .cmd = 0, .name = NULL, .handler = NULL, .perm_check = NULL }\n"
+TABLE_RE = re.compile(
+    r"\t// Sentinel\r?\n"
+    r"\t\{ \.cmd = 0, \.name = NULL, \.handler = NULL, \.perm_check = NULL \}\r?\n")
 
 
 def append_file(path, text, done):
@@ -216,13 +223,19 @@ def main():
     # 3) handlers + table entries
     s = open("drivers/kernelsu/supercalls.c", newline="").read()
     if MARK not in s:
-        anchor = "struct ksu_install_fd_tw {"
-        if s.count(anchor) != 1:
-            sys.exit("supercalls.c: handler anchor not found exactly once")
-        s = s.replace(anchor, SUPERCALLS_C_HANDLERS + "\n" + anchor)
-        if s.count(TABLE_ANCHOR) != 1:
-            sys.exit("supercalls.c: table anchor not found exactly once")
-        s = s.replace(TABLE_ANCHOR, SUPERCALLS_C_TABLE + TABLE_ANCHOR)
+        # handlers must be defined BEFORE the ioctl table that references them
+        table_re = re.compile(
+            r"[ \t]*// IOCTL handlers mapping table\r?\n"
+            r"static const struct ksu_ioctl_cmd_map ksu_ioctl_handlers\[\] = \{")
+        if len(table_re.findall(s)) != 1:
+            sys.exit("supercalls.c: table-def anchor not found exactly once (%d)"
+                     % len(table_re.findall(s)))
+        s = table_re.sub(lambda m: SUPERCALLS_C_HANDLERS + "\n\n" + m.group(0),
+                         s, count=1)
+        if len(TABLE_RE.findall(s)) != 1:
+            sys.exit("supercalls.c: table anchor not found exactly once (%d)"
+                     % len(TABLE_RE.findall(s)))
+        s = TABLE_RE.sub(lambda m: SUPERCALLS_C_TABLE + m.group(0), s, count=1)
         open("drivers/kernelsu/supercalls.c", "w", newline="").write(s)
         print("supercalls.c: handlers + table entries added")
     else:
@@ -234,7 +247,6 @@ def main():
     if "KSU_VERSION=32490" in s:
         print("Makefile: version already bumped")
     else:
-        import re
         s, n = re.subn(r"KSU_VERSION=\d+", "KSU_VERSION=32490", s, count=1)
         if n != 1:
             sys.exit("Makefile: KSU_VERSION not found")
