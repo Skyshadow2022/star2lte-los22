@@ -631,3 +631,46 @@ trigger now covers all tools). KSU reports 32490, susfs engine stays v1.5.5.
 1. Reboot already done; test banking apps (Blu, Tejarat, Mellat/Dima) — expect PASS.
 2. Bale still needs the prop-spoof module (separate task).
 3. If rsuntk rebases susfs onto staging/xxksu (32558+), a cleaner rebuild is possible.
+
+---
+
+## UPDATE 10 — 2026-09-29 (bug sweep: kernel-manager coordination verified end-to-end)
+
+> فارسی: گشت‌وزگذار کامل باگ روی کرنل v6. مخفی‌سازی mount (حتی برای روت)،
+> هوک‌های su (stat/access/execve) و ابزار susfs قدیمی همه تأیید شدن.
+
+### Verified working (empirical, dmesg + functional tests)
+- **Zero unsupported ioctls**: the manager's full command set (incl. backported
+  NEW_GET_ALLOW/DENY_LIST, SET_INIT_PGRP) is answered; no "ksu ioctl: unsupported"
+  in dmesg since v6.
+- **Mount hiding works even for root**: no KSU mounts visible in /proc/self/mounts
+  (sus-mount auto-add assigns DEFAULT_SUS_MNT_ID range; proc_namespace filters all readers).
+- **su hooks active**: dmesg shows repeated `newfstatat su->sh!`, `faccessat su->sh!`,
+  `do_execveat_common su found` - something polls su periodically and the hooks
+  redirect stat/access->sh and exec->/data/adb/ksud (su-compat provider direction).
+- **The sidex15 universal ksu_susfs binary WORKS with this kernel**: it speaks the
+  reboot-syscall transport; `add_sus_path` reached the shim (dmesg "kern_path err=0"
+  for a real path). A custom ksu_susfs_v2 rewrite was attempted and abandoned
+  (source kept at tools/ksu_susfs_v2.c for reference; static-glibc build crashed -
+  not worth chasing with the original working).
+- **False-negative quirk**: ksu_susfs prints "SUSFS operation not supported" for
+  commands that DID apply - the reboot fallthrough returns -EINVAL after the hook
+  handled it. Scripts log "failure" but the operation succeeds. Cosmetic.
+- **uname spoof round-trip verified**: set_uname applied globally (uname -r changed
+  for shell + apps), then reverted to the real 4.9.337-ies-gd54533f1546b. The R28
+  config has spoof_uname=0 so boots stay unspoofed by default.
+- **R28 module (susfs4ksu) repaired**: was a gutted dir (module.prop only) with a
+  staged update in modules_update never applied; copied the staged content in and
+  dropped the update flag. Its persistent config (/data/adb/susfs4ksu/) carries over.
+- ksu_susfs binary restored at /data/adb/ksu/bin/ksu_susfs (backup .old removed).
+  Its susfs-bin-update.sh never auto-runs from service.sh, so the binary won't get
+  clobbered by sidex15's repo.
+
+### Remaining known no-ops (by design, v1.5.5 fs-layer)
+sus_path_loop (fsnotify), sus_map (task_mmu hooks), mnt_id reorder (cosmetic),
+avc_log_spoofing, sulog fd (-EOPNOTSUPP), adb_root (rsuntk halted it).
+
+### Open items
+1. Banking-app test after this session (Blu, Tejarat, Mellat/Dima) - expect PASS.
+2. Bale prop-spoof module (separate).
+3. Optional future: port susfs engine onto rsuntk staging/xxksu when upstream rebases.
