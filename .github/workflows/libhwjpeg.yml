@@ -119,7 +119,9 @@ jobs:
         working-directory: /mnt/aosp
         run: |
           {
-            CLANGDIR=$(find prebuilts/clang/host/linux-x86 -maxdepth 2 -type d -name 'clang-*' | head -1)
+            CLANGDIR=$(ls -d prebuilts/clang/host/linux-x86/clang-r536225 2>/dev/null || true)
+            [ -z "$CLANGDIR" ] && CLANGDIR=$(ls -d prebuilts/clang/host/linux-x86/clang-r* 2>/dev/null | sort -V | tail -1)
+            [ -z "$CLANGDIR" ] && CLANGDIR=$(find prebuilts/clang/host/linux-x86 -maxdepth 2 -type d -name 'clang-*' | head -1)
             CLANG="$CLANGDIR/bin/clang++"
             echo "clang: $CLANG"; "$CLANG" --version | head -1
             CPPINC=$(find "$CLANGDIR" -type d -path '*android_libc++*arm64*' -name 'c++' | head -1)
