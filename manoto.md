@@ -584,3 +584,50 @@ ReZygisk v1.0.0, PlayIntegrityFork v18, Tricky Store 1.4.1. All active.
    supercall ABI — its manual sus_path/kstat adds will likely EFAULT now.
    Kernel-auto hiding (SUS_MOUNT auto-add, try_umount via setuid hook) is what
    carries the hiding; update module only if its 0x555d0 trigger is missed.
+
+---
+
+## UPDATE 9 — 2026-09-29 (susfs-v6: modern manager FULLY working; 7 modules restored)
+
+> فارسی: منیجر مدرن v3.2.2 (32490) کاملاً کار می‌کنه. تب‌های Superuser و Module پر شدن.
+> هر ۷ ماژول فعالن (bindhosts دوباره نصب شد). قدم بعدی: تست بانک‌ها بعد از یک ریبوت.
+
+### On-device state (verified via adb + screenshots)
+- Kernel `4.9.337-ies-gd54533f1546b` (v6 build, CI run 36530592052). Manager home:
+  **Working [LEGACY] — Version: 32490**, no version-gate banner. Local files:
+  `G:\claude\star2lte-rom\susfs\v4\` (boot-rksu-susfs-v6.img + odin tar, ksud-bootstrap.zip,
+  manager APK).
+- Root works two ways: `adb shell su` (execve hook redirect -> /data/adb/ksud,
+  escape_to_root) and the manager ioctl fd (GRANT_ROOT).
+- Superuser tab: full app list with ROOT/UMMOUNT badges (FolkPatch + Shell ROOT,
+  per-app profiles from the old setup intact). Module tab: lists + Install button work.
+- v6 = v5 + `tools/rksu_abi_backport.py`: NEW_GET_ALLOW/DENY_LIST (variable-length
+  struct + capacity-bounded iterator — the old ksu_get_allow_list had no capacity arg
+  and would overflow), SET_INIT_PGRP (ported from xxksu), GET_SULOG_FD (-EOPNOTSUPP),
+  KSU_VERSION bumped 32359 -> 32490 for the manager's min-version gate (>= 32377).
+- Module states got accidentally flagged (PIF/ReZygisk/TrickyStore remove+disable,
+  mountify disable) while exploring the new UI; flags removed via root, all re-enabled.
+- bindhosts (v2.1.5, mode 2, "ready") reinstalled — it had been deleted earlier.
+  Gotcha: `ksud module install` from `adb shell su` HANGS (bindhosts vol+ getevent
+  prompt); module dir gets created anyway; `pkill -x getevent` to release.
+  Git Bash gotcha: `adb push /data/...` mangles paths — use `MSYS_NO_PATHCONV=1`.
+
+### Architecture recap (what this kernel is)
+ExyHyperBrick lineage-22.2 + rsuntk `susfs-rksu-master` (manual-hook mode: the
+kernel tree calls ksu_handle_sys_reboot / vfs_read / execveat / faccessat / stat —
+`tools/rksu_manual_hooks.py`) + SUSFS v1.5.5 fs-layer + `rksu_susfs_compat.c`
+(v2 ABI adapter) + `rksu_compat_wire.py` + `susfs_v155_fix.py` (uid>=10000 gates)
++ `rksu_abi_backport.py` (v3.2.2 manager ABI). Workflow: susfs-v3.yml (paths
+trigger now covers all tools). KSU reports 32490, susfs engine stays v1.5.5.
+
+### Known degraded (acceptable)
+- sus_path_loop / sdcard-leak-fix, sus_map, mnt-id reorder, avc_log_spoofing,
+  sulog fd: no-ops (v1.5.5 fs-layer lacks the hooks). Feature list reports what's on.
+- sidex15 R28 module's `ksu_susfs` binary = old single-pointer supercall ABI — its
+  manual sus_path/kstat adds fail silently; kernel-auto hiding carries the banks.
+- Manager's adb_root feature (id 3) unsupported by design (rsuntk halted it).
+
+### Next
+1. Reboot already done; test banking apps (Blu, Tejarat, Mellat/Dima) — expect PASS.
+2. Bale still needs the prop-spoof module (separate task).
+3. If rsuntk rebases susfs onto staging/xxksu (32558+), a cleaner rebuild is possible.
