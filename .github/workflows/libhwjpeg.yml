@@ -87,6 +87,20 @@ jobs:
           echo "== disk after sync"; df -h /mnt
           test -d "$GRAPHICS_PATH/base/libhwjpeg" || { echo "::error::graphics tree missing"; exit 1; }
 
+      - name: Prune tree (free disk — full sync fills ~80 GB)
+        working-directory: /mnt/aosp
+        run: |
+          df -h /mnt | tail -1
+          # Keep ONLY what a standalone soong build of libhwjpeg needs:
+          # build system, clang/build-tools/go prebuilts, system/core (cutils/log
+          # headers), bionic (uapi), hardware/* (incl. samsung_slsi-linaro for
+          # exynos/ion/mscl/acryl headers). Everything else goes.
+          rm -rf .repo frameworks packages vendor device kernel bootable test \
+            external prebuilts/gcc prebuilts/gdb prebuilts/ndk prebuilts/python \
+            prebuilts/rust prebuilts/jdk 2>/dev/null || true
+          find system -maxdepth 1 -mindepth 1 ! -name core -exec rm -rf {} + 2>/dev/null || true
+          df -h /mnt | tail -1
+
       - name: Apply camera patch
         working-directory: /mnt/aosp
         run: |
@@ -106,26 +120,28 @@ jobs:
           export LC_ALL=C
           set +u
           source build/envsetup.sh
-          lunch lineage_${DEVICE}-userdebug || breakfast ${DEVICE} userdebug
+          # Generic arm64 target (device trees are pruned); libhwjpeg's soong
+          # config falls back to its defaults (ANDROID_VERSION=13, no G2D),
+          # matching how the ROM builds it.
+          lunch aosp_arm64-trunk_staging-userdebug || lunch aosp_arm64-userdebug
           set -u
           m libhwjpeg -j"$(nproc)" 2>&1 | tee /tmp/build.log
           echo "== find built libs"
-          find out/target/product/${DEVICE}/vendor -name 'libhwjpeg.so' -exec ls -l {} \;
-          find out -path '*libhwjpeg_intermediates*/libhwjpeg.so' -exec ls -l {} \; | head
+          find out -name 'libhwjpeg.so' -path '*intermediates*' -exec ls -l {} \;
 
       - name: Collect + verify
         working-directory: /mnt/aosp
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist"
           got=0
-          for pair in "lib libhwjpeg-arm.so" "lib64 libhwjpeg-arm64.so"; do
-            set -- $pair
-            src="out/target/product/${DEVICE}/vendor/$1/libhwjpeg.so"
-            if [ -f "$src" ]; then
-              cp "$src" "$GITHUB_WORKSPACE/dist/$2"; got=1
-              echo "collected $1/libhwjpeg.so -> $2"
-            else
-              echo "::warning::$1/libhwjpeg.so not built"
+          for f in $(find out -name 'libhwjpeg.so' -path '*intermediates*' 2>/dev/null); do
+            kind=$(file "$f")
+            if echo "$kind" | grep -q aarch64; then
+              cp "$f" "$GITHUB_WORKSPACE/dist/libhwjpeg-arm64.so"; got=1
+              echo "collected arm64: $f"
+            elif echo "$kind" | grep -qE 'ARM, EABI5|ELF 32-bit.*ARM'; then
+              cp "$f" "$GITHUB_WORKSPACE/dist/libhwjpeg-arm.so"; got=1
+              echo "collected arm: $f"
             fi
           done
           [ $got -eq 1 ] || { echo "::error::no libhwjpeg.so produced"; exit 1; }
