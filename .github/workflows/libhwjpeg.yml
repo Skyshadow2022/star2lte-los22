@@ -58,7 +58,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq git git-lfs gnupg flex bison build-essential \
             zip unzip curl zlib1g-dev libssl-dev python3 python-is-python3 rsync ccache \
-            libxml2-utils xsltproc fontconfig >/dev/null
+            libxml2-utils xsltproc fontconfig file >/dev/null
           mkdir -p ~/bin
           curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
           chmod a+x ~/bin/repo
@@ -115,22 +115,46 @@ jobs:
           grep -q "Correcting inconsistent Exif image" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
           grep -q ": ExynosJpegEncoderForCamera(bBTBComp, 0) {}" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
 
-      - name: Build libhwjpeg
+      - name: Build libhwjpeg (standalone clang, no soong)
         working-directory: /mnt/aosp
         run: |
           {
-            export ALLOW_MISSING_DEPENDENCIES=true
-            export LC_ALL=C
-            set +u
-            source build/envsetup.sh
-            # Generic arm64 target (device trees are pruned); libhwjpeg's soong
-            # config falls back to its defaults (ANDROID_VERSION=13, no G2D),
-            # matching how the ROM builds it.
-            lunch aosp_arm64-trunk_staging-userdebug || lunch aosp_arm64-userdebug
-            set -u
-            m libhwjpeg -j"$(nproc)"
-            echo "== find built libs"
-            find out -name 'libhwjpeg.so' -path '*intermediates*' -exec ls -l {} \;
+            CLANGDIR=$(find prebuilts/clang/host/linux-x86 -maxdepth 2 -type d -name 'clang-*' | head -1)
+            CLANG="$CLANGDIR/bin/clang++"
+            echo "clang: $CLANG"; "$CLANG" --version | head -1
+            CPPINC=$(find "$CLANGDIR" -type d -name 'c++' -path '*include*' | head -1)
+            echo "libc++ headers: $CPPINC"
+
+            build_arch() {  # <arch uapi dir> <target triple> <output>
+              INC=""
+              for d in system/core/include bionic/libc/include \
+                bionic/libc/kernel/uapi bionic/libc/kernel/android/uapi \
+                bionic/libc/kernel/uapi/asm-$1 hardware/libhardware/include \
+                hardware/samsung_slsi-linaro/exynos/include \
+                hardware/samsung_slsi-linaro/graphics/base/libhwjpeg/include \
+                hardware/samsung_slsi-linaro/graphics/base/include \
+                ; do [ -d "$d" ] && INC="$INC -I$d"; done
+              # auto-discover exynos/ion/mscl/acryl header dirs
+              for h in exynos-hwjpeg.h acryl.h giant_mscl.h ion.h ExynosExif.h; do
+                for d in $(find hardware/samsung_slsi-linaro -name "$h" 2>/dev/null | xargs -n1 dirname 2>/dev/null); do
+                  case " $INC " in *" -I$d "*) ;; *) INC="$INC -I$d";; esac
+                done
+              done
+              [ -n "$CPPINC" ] && INC="$INC -isystem $CPPINC"
+              SRCDIR=hardware/samsung_slsi-linaro/graphics/base/libhwjpeg
+              mkdir -p out-dist
+              # undefined shared deps (liblog/libcutils/libutils/libion_exynos/
+              # libgiantmscl/libacryl) resolve at load time from the vendor namespace
+              "$CLANG" --target=$2 -O2 -fPIC -std=c++17 \
+                -DLOG_TAG='"exynos-libhwjpeg"' -DHWJPEG_ANDROID_VERSION=13 \
+                $INC "$SRCDIR"/*.cpp \
+                -nostdlib -shared -Wl,-soname,libhwjpeg.so -o "out-dist/$3" \
+                || exit 1
+            }
+
+            build_arch arm64 aarch64-linux-android31 libhwjpeg-arm64.so
+            build_arch arm armv7a-linux-androideabi31 libhwjpeg-arm.so
+            ls -l out-dist/
           } 2>&1 | tee /tmp/build.log
 
       - name: Collect + verify
@@ -138,7 +162,7 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist"
           got=0
-          for f in $(find out -name 'libhwjpeg.so' -path '*intermediates*' 2>/dev/null); do
+          for f in $(find out-dist -name 'libhwjpeg.so' 2>/dev/null); do
             kind=$(file "$f")
             if echo "$kind" | grep -q aarch64; then
               cp "$f" "$GITHUB_WORKSPACE/dist/libhwjpeg-arm64.so"; got=1
