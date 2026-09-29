@@ -91,7 +91,10 @@ jobs:
         working-directory: /mnt/aosp
         run: |
           cd "$GRAPHICS_PATH"
-          git apply --verbose "$GITHUB_WORKSPACE/repo-config/patches/hardware_samsung_slsi-linaro_graphics/0001-libhwjpeg-star2lte-camera-fix.patch"
+          set -o pipefail
+          PATCH="$GITHUB_WORKSPACE/repo-config/patches/hardware_samsung_slsi-linaro_graphics/0001-libhwjpeg-star2lte-camera-fix.patch"
+          { git apply --verbose "$PATCH" \
+              || patch -p1 --fuzz=3 --no-backup-if-mismatch < "$PATCH"; } 2>&1 | tee /tmp/patch-apply.log
           echo "== changed:"; git --no-pager diff --stat
           grep -q "Correcting inconsistent Exif image" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
           grep -q ": ExynosJpegEncoderForCamera(bBTBComp, 0) {}" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
@@ -144,6 +147,7 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist"
           tail -c 400000 /tmp/build.log > "$GITHUB_WORKSPACE/dist/build.log" 2>/dev/null || echo "no build log" > "$GITHUB_WORKSPACE/dist/build.log"
+          cp /tmp/patch-apply.log "$GITHUB_WORKSPACE/dist/patch-apply.log" 2>/dev/null || true
           echo "run ${{ github.run_id }} status ${{ job.status }} sha ${{ github.sha }}" > "$GITHUB_WORKSPACE/dist/STATUS.txt"
           gh release view camera-ci >/dev/null 2>&1 || gh release create camera-ci --prerelease \
             --title "Camera libhwjpeg (star2lte)" --notes "Patched libhwjpeg.so — replace /vendor/lib*/libhwjpeg.so on device. See manoto.md."
