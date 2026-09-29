@@ -33,6 +33,8 @@ on:
       - tools/susfs_v155_fix.py
       - tools/rksu_susfs_compat.c
       - tools/rksu_compat_wire.py
+      - tools/rksu_manual_hooks.py
+      - tools/rksu_abi_backport.py
 
 permissions:
   contents: write
