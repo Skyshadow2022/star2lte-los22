@@ -674,3 +674,34 @@ avc_log_spoofing, sulog fd (-EOPNOTSUPP), adb_root (rsuntk halted it).
 1. Banking-app test after this session (Blu, Tejarat, Mellat/Dima) - expect PASS.
 2. Bale prop-spoof module (separate).
 3. Optional future: port susfs engine onto rsuntk staging/xxksu when upstream rebases.
+
+---
+
+## UPDATE 11 — 2026-09-29 (Bale prop-spoof shipped; Hamrah-e-Man added to test list; camera CI retried)
+
+> فارسی: ماژول propspoof ساخته و نصب شد (۴ پراپرتی کارت‌های بانکی/اپ‌ها). بل الان
+> باید با اسپوف زنده کار کنه — تست کن. همراه من (ir.mci.ecareapp) به لیست تست اضافه شد.
+> دوربین: workflow اصلاح شد (fallback پچ + لاگ) و دوباره در حال اجراست.
+
+### Prop spoof module (propspoof v1.0) — INSTALLED
+- /data/adb/modules/propspoof/post-fs-data.sh runs `ksud resetprop` for:
+  ro.debuggable=0, ro.build.type=user, ro.build.tags=release-keys,
+  ro.boot.verifiedbootstate=green (Bale's four checks from UPDATE 7).
+- Applied LIVE too (no reboot needed): getprop shows all four spoofed; Bale
+  force-stopped so its next launch re-checks. Reboot persists via the module.
+- ksud resetprop = Magisk-compatible tool shipped with the modern rksu.
+- If Bale still fails: it may check more (SELinux context, mount points) — iterate.
+- **Test list (user): Bale (ir.nasim), همراه من (ir.mci.ecareapp), Blu, Tejarat,
+  Mellat/Dima.** In the manager's Superuser tab set "Umount modules" ON for each
+  banking/operator app (Bale, blu, Tejarat already have UMMOUNT badges; add ecareapp
+  if it complains).
+
+### Camera (photo save) — CI retry
+- The 2026-09-27 libhwjpeg runs died at "Apply camera patch" with no collected log.
+- The patch applies cleanly to the current lineage-22.2 graphics HEAD locally
+  (git apply --check + both grep probes pass), so the CI failure was environmental.
+- Workflow hardened: git apply -> `patch -p1 --fuzz=3` fallback, output teed to
+  camera-ci release as patch-apply.log. Retry running (commit 4f73db3).
+- Once camera-ci publishes libhwjpeg-arm64.so + libhwjpeg-arm.so: adb push to
+  /vendor/lib64/ + /vendor/lib/ (remount vendor rw or use a bind-mount module),
+  then restart camera. Detail in manoto UPDATE 6.
