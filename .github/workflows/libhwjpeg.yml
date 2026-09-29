@@ -91,7 +91,7 @@ jobs:
         working-directory: /mnt/aosp
         run: |
           df -h /mnt | tail -1
-          rm -rf .repo frameworks packages kernel bootable test external \
+          rm -rf .repo frameworks packages kernel bootable test \
             prebuilts/gcc prebuilts/gdb prebuilts/ndk prebuilts/python prebuilts/rust
           for d in device vendor system; do
             keep=core; [ "$d" = device ] && keep=generic; [ "$d" = vendor ] && keep=lineage
