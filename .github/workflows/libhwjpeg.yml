@@ -122,8 +122,11 @@ jobs:
             CLANGDIR=$(find prebuilts/clang/host/linux-x86 -maxdepth 2 -type d -name 'clang-*' | head -1)
             CLANG="$CLANGDIR/bin/clang++"
             echo "clang: $CLANG"; "$CLANG" --version | head -1
-            CPPINC=$(find "$CLANGDIR" -type d -name 'c++' -path '*include*' | head -1)
+            CPPINC=$(find "$CLANGDIR" -type d -path '*android_libc++*arm64*' -name 'c++' | head -1)
+            [ -n "$CPPINC" ] || CPPINC=$(find "$CLANGDIR" -type d -name 'c++' -path '*include*' | head -1)
             echo "libc++ headers: $CPPINC"
+            RESINC=$(find "$CLANGDIR" -type d -name include -path '*clang*' | grep -v android_libc++ | head -1)
+            echo "clang builtins: $RESINC"
 
             build_arch() {  # <arch uapi dir> <target triple> <output>
               INC=""
@@ -140,6 +143,7 @@ jobs:
                   case " $INC " in *" -I$d "*) ;; *) INC="$INC -I$d";; esac
                 done
               done
+              [ -n "$RESINC" ] && INC="$INC -isystem $RESINC"
               [ -n "$CPPINC" ] && INC="$INC -isystem $CPPINC"
               SRCDIR=hardware/samsung_slsi-linaro/graphics/base/libhwjpeg
               mkdir -p out-dist
