@@ -95,9 +95,10 @@ jobs:
           # build system, clang/build-tools/go prebuilts, system/core (cutils/log
           # headers), bionic (uapi), hardware/* (incl. samsung_slsi-linaro for
           # exynos/ion/mscl/acryl headers). Everything else goes.
-          rm -rf .repo frameworks packages vendor device kernel bootable test \
+          rm -rf .repo frameworks packages vendor kernel bootable test \
+            $(find device -mindepth 1 -maxdepth 1 ! -name generic -print 2>/dev/null) \
             external prebuilts/gcc prebuilts/gdb prebuilts/ndk prebuilts/python \
-            prebuilts/rust 2>/dev/null || true
+                        prebuilts/rust 2>/dev/null || true
           find system -maxdepth 1 -mindepth 1 ! -name core -exec rm -rf {} + 2>/dev/null || true
           df -h /mnt | tail -1
 
@@ -116,18 +117,20 @@ jobs:
       - name: Build libhwjpeg
         working-directory: /mnt/aosp
         run: |
-          export ALLOW_MISSING_DEPENDENCIES=true
-          export LC_ALL=C
-          set +u
-          source build/envsetup.sh
-          # Generic arm64 target (device trees are pruned); libhwjpeg's soong
-          # config falls back to its defaults (ANDROID_VERSION=13, no G2D),
-          # matching how the ROM builds it.
-          lunch aosp_arm64-trunk_staging-userdebug || lunch aosp_arm64-userdebug
-          set -u
-          m libhwjpeg -j"$(nproc)" 2>&1 | tee /tmp/build.log
-          echo "== find built libs"
-          find out -name 'libhwjpeg.so' -path '*intermediates*' -exec ls -l {} \;
+          {
+            export ALLOW_MISSING_DEPENDENCIES=true
+            export LC_ALL=C
+            set +u
+            source build/envsetup.sh
+            # Generic arm64 target (device trees are pruned); libhwjpeg's soong
+            # config falls back to its defaults (ANDROID_VERSION=13, no G2D),
+            # matching how the ROM builds it.
+            lunch aosp_arm64-trunk_staging-userdebug || lunch aosp_arm64-userdebug
+            set -u
+            m libhwjpeg -j"$(nproc)"
+            echo "== find built libs"
+            find out -name 'libhwjpeg.so' -path '*intermediates*' -exec ls -l {} \;
+          } 2>&1 | tee /tmp/build.log
 
       - name: Collect + verify
         working-directory: /mnt/aosp
