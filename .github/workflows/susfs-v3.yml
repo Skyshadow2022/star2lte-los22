@@ -133,11 +133,16 @@ jobs:
           # Modern rksu is manual-hook only: the kernel tree must call its
           # ksu_handle_* handlers (reboot supercall, ksud.rc injection, su exec).
           python3 "$GITHUB_WORKSPACE/tools/rksu_manual_hooks.py"
+          # v3.2.2 manager ABI: NEW_GET_ALLOW/DENY_LIST + SET_INIT_PGRP +
+          # GET_SULOG_FD ioctls + KSU_VERSION bump for its min-version gate.
+          python3 "$GITHUB_WORKSPACE/tools/rksu_abi_backport.py"
           echo "== sanity =="
           grep -c '_impl' fs/susfs.c
           grep -n 'rksu_susfs_compat.o' drivers/kernelsu/Makefile
           grep -n 'CMD_SUSFS_ADD_SUS_PATH_LOOP' include/linux/susfs_def.h
           grep -c 'rksu manual hook' kernel/reboot.c fs/read_write.c fs/exec.c fs/open.c fs/stat.c
+          grep -n 'KSU_IOCTL_NEW_GET_ALLOW_LIST' drivers/kernelsu/supercalls.c
+          grep -n 'KSU_VERSION=32490' drivers/kernelsu/Makefile
           test -e drivers/kernelsu/rksu_susfs_compat.c
 
       - name: Remove -dirty from kernel version
