@@ -97,7 +97,7 @@ jobs:
           # exynos/ion/mscl/acryl headers). Everything else goes.
           rm -rf .repo frameworks packages vendor device kernel bootable test \
             external prebuilts/gcc prebuilts/gdb prebuilts/ndk prebuilts/python \
-            prebuilts/rust prebuilts/jdk 2>/dev/null || true
+            prebuilts/rust 2>/dev/null || true
           find system -maxdepth 1 -mindepth 1 ! -name core -exec rm -rf {} + 2>/dev/null || true
           df -h /mnt | tail -1
 
@@ -109,7 +109,7 @@ jobs:
           PATCH="$GITHUB_WORKSPACE/repo-config/patches/hardware_samsung_slsi-linaro_graphics/0001-libhwjpeg-star2lte-camera-fix.patch"
           { git apply --verbose "$PATCH" \
               || patch -p1 --fuzz=3 --no-backup-if-mismatch < "$PATCH"; } 2>&1 | tee /tmp/patch-apply.log
-          echo "== changed:"; git --no-pager diff --stat
+          echo "== changed:"; git --no-pager diff --stat 2>/dev/null || true
           grep -q "Correcting inconsistent Exif image" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
           grep -q ": ExynosJpegEncoderForCamera(bBTBComp, 0) {}" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
 
