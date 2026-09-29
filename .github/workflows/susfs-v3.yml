@@ -35,6 +35,7 @@ on:
       - tools/rksu_compat_wire.py
       - tools/rksu_manual_hooks.py
       - tools/rksu_abi_backport.py
+      - tools/ksu_susfs_v2.c
 
 permissions:
   contents: write
@@ -209,6 +210,15 @@ jobs:
           tar --format=ustar -C dist -cf dist/boot-rksu-susfs-v4-odin.tar --transform 's/.*/boot.img/' boot-rksu-susfs-v4.img
           cp kernel/out/.config dist/kernel.config
           (cd dist && sha256sum boot-rksu-susfs-v4.img boot-rksu-susfs-v4-odin.tar > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: Build ksu_susfs v2 userspace tool
+        run: |
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu libc6-dev-arm64-cross >/dev/null
+          aarch64-linux-gnu-gcc -static -O2 -Wall -o dist/ksu_susfs tools/ksu_susfs_v2.c
+          aarch64-linux-gnu-strip dist/ksu_susfs
+          file dist/ksu_susfs
+          (cd dist && sha256sum ksu_susfs >> SHA256SUMS)
           cat dist/SHA256SUMS
 
       - name: Publish to "susfs-v3-ci" release
