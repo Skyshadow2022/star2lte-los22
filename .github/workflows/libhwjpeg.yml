@@ -45,6 +45,7 @@ jobs:
           clone "$EXYNOS"   tree/hardware/samsung_slsi-linaro/exynos &
           clone LineageOS/android_hardware_libhardware tree/hardware/libhardware &
           clone LineageOS/android_system_core          tree/system/core &
+          clone LineageOS/android_system_logging       tree/system/logging &
           clone LineageOS/android_bionic               tree/bionic &
           wait
           test -d tree/hardware/samsung_slsi-linaro/graphics/base/libhwjpeg
@@ -76,27 +77,32 @@ jobs:
             SRCDIR=$T/graphics/base/libhwjpeg
 
             build_arch() {  # <uapi asm dir> <target triple> <output>
-              INC="-I$SRCDIR/include -I$T/graphics/base/include \
-                -I$T/exynos/include \
-                -I$SC/include \
-                -I$SC/liblog/include \
-                -I$SC/base/include \
-                -I$B/libc/include \
-                -I$B/libc/kernel/uapi \
-                -I$B/libc/kernel/uapi/asm-$1 \
-                -I$B/libc/kernel/android/uapi \
-                -Itree/hardware/libhardware/include"
+              # Project headers as -I; ALL system headers as -isystem AFTER
+              # libc++ (its C-wrapper headers use #include_next, which only
+              # searches -isystem dirs that come later in the list).
+              PROJ="-I$SRCDIR/include -I$T/graphics/base/include \
+                -I$T/exynos/include"
               # auto-discover exynos/ion/mscl/acryl header dirs
               for h in exynos-hwjpeg.h acryl.h giant_mscl.h ion.h; do
                 for d in $(find tree/hardware/samsung_slsi-linaro -name "$h" | xargs -n1 dirname); do
-                  case "$INC" in *"-I$d "*) ;; *) INC="$INC -I$d";; esac
+                  case "$PROJ" in *"-I$d "*) ;; *) PROJ="$PROJ -I$d";; esac
                 done
               done
+              SYS="-isystem $LIBCXX \
+                -isystem $B/libc/include \
+                -isystem $B/libc/kernel/uapi \
+                -isystem $B/libc/kernel/uapi/asm-$1 \
+                -isystem $B/libc/kernel/android/uapi \
+                -isystem $SC/include \
+                -isystem $SC/base/include \
+                -isystem tree/system/logging/liblog/include \
+                -isystem tree/hardware/libhardware/include \
+                -isystem $RES"
               mkdir -p out-dist
               "$CLANG" --target=$2 -O2 -fPIC -std=c++17 -nostdinc \
-                -isystem "$LIBCXX" -isystem "$RES" \
+                $SYS $PROJ \
                 -DLOG_TAG='"exynos-libhwjpeg"' -DHWJPEG_ANDROID_VERSION=13 \
-                $INC "$SRCDIR"/*.cpp \
+                "$SRCDIR"/*.cpp \
                 -nostdlib -shared -Wl,-soname,libhwjpeg.so -o "out-dist/$3"
               echo "built out-dist/$3"
             }
