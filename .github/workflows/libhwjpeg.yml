@@ -110,7 +110,7 @@ jobs:
               mkdir -p stubs
               for lib in libacryl libc++ libc libdl libgiantmscl libion_exynos liblog libm libutils libcutils; do
                 printf '\n' > stubs/${lib}.c
-                "$CLANG" --target=$2 -shared -Wl,-soname,${lib}.so -o stubs/${lib}.so stubs/${lib}.c
+                clang --target=$2 -nostdlib -shared -Wl,-soname,${lib}.so -o stubs/${lib}.so stubs/${lib}.c
               done
               "$CLANG" --target=$2 -O2 -fPIC -std=c++17 -nostdinc \
                 -include fcntl.h \
