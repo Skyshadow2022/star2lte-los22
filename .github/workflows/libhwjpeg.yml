@@ -79,15 +79,17 @@ jobs:
       - name: repo sync (shallow)
         working-directory: /mnt/aosp
         run: |
-          ok=0
-          for i in 1 2 3 4 5 6 7 8; do
-            repo sync -c -j4 --no-clone-bundle --optimized-fetch --prune \
-              --force-sync --no-tags && ok=1 && break
-            echo "repo sync attempt $i failed; retrying"; sleep 30
-          done
-          echo "== disk after sync"; df -h /mnt
+          {
+            ok=0
+            for i in 1 2 3 4 5 6 7 8; do
+              repo sync -c -j2 --no-clone-bundle --optimized-fetch --prune \
+                --force-sync --no-tags && ok=1 && break
+              echo "repo sync attempt $i failed; retrying"; sleep 60
+            done
+            echo "== disk after sync"; df -h /mnt
+          } 2>&1 | tee /tmp/sync.log
           test -d "$GRAPHICS_PATH/base/libhwjpeg" || { echo "::error::graphics tree missing"; exit 1; }
-          [ $ok -eq 1 ] || { echo "::error::repo sync failed after retries"; exit 1; }
+          [ $ok -eq 1 ] || { echo "::error::repo sync failed after retries (see sync.log)"; exit 1; }
           test -d prebuilts/clang/host/linux-x86 || { echo "::error::prebuilts/clang missing (partial sync)"; exit 1; }
           test -d bionic/libc/include || { echo "::error::bionic missing (partial sync)"; exit 1; }
           test -d system/core/include || { echo "::error::system/core missing (partial sync)"; exit 1; }
@@ -203,6 +205,7 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/dist"
           tail -c 400000 /tmp/build.log > "$GITHUB_WORKSPACE/dist/build.log" 2>/dev/null || echo "no build log" > "$GITHUB_WORKSPACE/dist/build.log"
           cp /tmp/patch-apply.log "$GITHUB_WORKSPACE/dist/patch-apply.log" 2>/dev/null || true
+          cp /tmp/sync.log "$GITHUB_WORKSPACE/dist/sync.log" 2>/dev/null || true
           echo "run ${{ github.run_id }} status ${{ job.status }} sha ${{ github.sha }}" > "$GITHUB_WORKSPACE/dist/STATUS.txt"
           gh release view camera-ci >/dev/null 2>&1 || gh release create camera-ci --prerelease \
             --title "Camera libhwjpeg (star2lte)" --notes "Patched libhwjpeg.so — replace /vendor/lib*/libhwjpeg.so on device. See manoto.md."
