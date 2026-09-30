@@ -64,9 +64,11 @@ jobs:
         run: |
           {
             set -e
+            sudo apt-get install -y -qq libc++-dev libc++abi-dev >/dev/null
             CLANG=clang++
             RES=$(find /usr/lib/llvm-* /usr/lib/clang -maxdepth 6 -type d -name include -path '*lib/clang*' 2>/dev/null | head -1)
-            LIBCXX=$(find /usr/lib/llvm-* -maxdepth 5 -type d -name 'c++' -path '*include*' 2>/dev/null | head -1)
+            LIBCXX=/usr/include/c++/v1
+            [ -d "$LIBCXX" ] || LIBCXX=$(find /usr/lib/llvm-* -maxdepth 5 -type d -name 'c++' -path '*include*' 2>/dev/null | head -1)
             echo "clang builtins: $RES"; echo "libc++: $LIBCXX"
             T=tree/hardware/samsung_slsi-linaro
             B=tree/bionic
