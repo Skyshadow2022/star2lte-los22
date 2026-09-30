@@ -115,7 +115,7 @@ jobs:
               "$CLANG" --target=$2 -O2 -fPIC -std=c++17 -DNDEBUG -nostdinc \
                 -include fcntl.h \
                 $SYS $PROJ \
-                -DLOG_TAG='"exynos-libhwjpeg"' -DHWJPEG_ANDROID_VERSION=13 \
+                -DLOG_TAG='"exynos-libhwjpeg"' -DHWJPEG_ANDROID_VERSION=10 \
                 "$SRCDIR"/*.cpp \
                 -nostdlib -shared -Wl,-soname,libhwjpeg.so \
                 -Lstubs -lacryl -lc++ -lc -lcutils -ldl -lgiantmscl -lion_exynos -llog -lm -lutils \
