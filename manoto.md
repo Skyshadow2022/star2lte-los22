@@ -705,3 +705,28 @@ avc_log_spoofing, sulog fd (-EOPNOTSUPP), adb_root (rsuntk halted it).
 - Once camera-ci publishes libhwjpeg-arm64.so + libhwjpeg-arm.so: adb push to
   /vendor/lib64/ + /vendor/lib/ (remount vendor rw or use a bind-mount module),
   then restart camera. Detail in manoto UPDATE 6.
+
+---
+
+## UPDATE 12 — 2026-09-30 (camera libs BUILT — standalone clang workflow; install pending)
+
+> فارسی: فایل‌های دوربین ساخته شدن! workflow ی جدید بدون soong/AOSP-tree — فقط ۵ ریپو
+> و کامپایل مستقیم (~۵ دقیقه به‌جای شکست‌های ۵۰ دقیقه‌ای). نصب روی گوشی مونده (گوشی به adb وصل نبود).
+
+### camera-ci release: libhwjpeg-arm64.so + libhwjpeg-arm.so (sha verified)
+- The 10-iteration journey on the old workflow: ENOSPC (145 GB full-LOS sync) →
+  git-diff-after-prune → soong bootstrap whack-a-mole → partial syncs. Final
+  workflow: clone FIVE repos directly (graphics, exynos, libhardware, system/core,
+  bionic + system/logging for log.h) ≈ 600 MB, then compile the 8 sources with the
+  runner clang: `-nostdinc` + explicit `-isystem` order (libc++ BEFORE clang
+  builtins, bionic after — include_next chains) + project dirs as -I + auto-discover
+  exynos/ion/mscl/acryl headers (strip hardware/exynos suffix) + -include fcntl.h.
+  Shared deps stay undefined → resolved from the vendor namespace at load.
+- Patch (1-arg ctor + relaxed Exif) applied to the graphics tree before compile ✓.
+- Build ~5 min total. Commit 300c6df→47b8949.
+
+### Install (next session, device attached)
+1. Backup: cp /vendor/lib64/libhwjpeg.so + /vendor/lib/libhwjpeg.so to /data/local/tmp.
+2. mount -o remount,rw /vendor; cp new libs; chown root:root; chmod 644; restorecon.
+3. reboot; test photo capture + save in the stock camera app.
+4. Rollback = restore the backed-up originals.
