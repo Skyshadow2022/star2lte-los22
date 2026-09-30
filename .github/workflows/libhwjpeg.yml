@@ -92,7 +92,6 @@ jobs:
               "$CLANG" --target=$2 -O2 -fPIC -std=c++17 -nostdinc \
                 -isystem "$RES" -isystem "$LIBCXX" \
                 -DLOG_TAG='"exynos-libhwjpeg"' -DHWJPEG_ANDROID_VERSION=13 \
-                -D__ANDROID_API__=31 \
                 $INC "$SRCDIR"/*.cpp \
                 -nostdlib -shared -Wl,-soname,libhwjpeg.so -o "out-dist/$3"
               echo "built out-dist/$3"
