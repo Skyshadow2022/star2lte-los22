@@ -81,10 +81,15 @@ jobs:
               # libc++ (its C-wrapper headers use #include_next, which only
               # searches -isystem dirs that come later in the list).
               PROJ="-I$SRCDIR/include -I$T/graphics/base/include \
-                -I$T/exynos/include"
-              # auto-discover exynos/ion/mscl/acryl header dirs
+                -I$T/exynos/include \
+                -I$T/graphics/base/libacryl/include \
+                -I$T/graphics/base/giantmscl/include \
+                -I$T/graphics/base/libion/include"
+              # auto-discover exynos/ion/mscl/acryl header dirs (strip the
+              # hardware/exynos suffix so <hardware/exynos/x.h> resolves)
               for h in exynos-hwjpeg.h acryl.h giant_mscl.h ion.h; do
                 for d in $(find tree/hardware/samsung_slsi-linaro -name "$h" | xargs -n1 dirname); do
+                  case "$d" in */hardware/exynos) d="${d%/hardware/exynos}";; esac
                   case "$PROJ" in *"-I$d "*) ;; *) PROJ="$PROJ -I$d";; esac
                 done
               done
