@@ -104,12 +104,22 @@ jobs:
                 -isystem tree/hardware/libhardware/include \
                 -isystem $RES"
               mkdir -p out-dist
+              # The device's original libhwjpeg DT_NEEDEDs these vendor/system
+              # libs; empty stubs make the link record the same DT_NEEDED
+              # entries (undefined symbols resolve at runtime from /vendor + VNDK).
+              mkdir -p stubs
+              for lib in libacryl libc++ libc libdl libgiantmscl libion_exynos liblog libm libutils libcutils; do
+                printf '\n' > stubs/${lib}.c
+                "$CLANG" --target=$2 -shared -Wl,-soname,${lib}.so -o stubs/${lib}.so stubs/${lib}.c
+              done
               "$CLANG" --target=$2 -O2 -fPIC -std=c++17 -nostdinc \
                 -include fcntl.h \
                 $SYS $PROJ \
                 -DLOG_TAG='"exynos-libhwjpeg"' -DHWJPEG_ANDROID_VERSION=13 \
                 "$SRCDIR"/*.cpp \
-                -nostdlib -shared -Wl,-soname,libhwjpeg.so -o "out-dist/$3"
+                -nostdlib -shared -Wl,-soname,libhwjpeg.so \
+                -Lstubs -lacryl -lc++ -lc -lcutils -ldl -lgiantmscl -lion_exynos -llog -lm -lutils \
+                -o "out-dist/$3"
               echo "built out-dist/$3"
             }
 
