@@ -1,17 +1,16 @@
 name: star2lte libhwjpeg (camera photo fix)
 
-# Builds ONLY the vendor library hardware/samsung_slsi-linaro/graphics/libhwjpeg
-# with our camera patch (1-arg ctor for the libexynoscamera3 blob + relaxed Exif
-# dimension check so photo capture no longer fails). Publishes the arm and arm64
-# libhwjpeg.so to the rolling "camera-ci" release. The .so is dropped onto the
-# device by replacing /vendor/lib*/libhwjpeg.so directly (no ROM reflash, no
-# module mount that banking apps could detect).
+# Builds ONLY the patched vendor library libhwjpeg for star2lte (camera photo
+# save fix: 1-arg ctor for the libexynoscamera3 blob + relaxed Exif dimension
+# check). Publishes arm + arm64 libhwjpeg.so to the rolling "camera-ci" release;
+# on device they replace /vendor/lib*/libhwjpeg.so directly.
 #
-# Disk: a shallow full-LOS 22.2 sync fills the entire ~80 GB runner, so after
-# the sync everything not needed for this one module is pruned: keep the build
-# system, clang/build-tools/go/jdk prebuilts, system/core (cutils/log headers),
-# bionic (uapi), device/generic (aosp_arm64 product bits), vendor/lineage
-# (envsetup sources it) and hardware/* (exynos/ion/mscl/acryl headers).
+# No repo/soong/AOSP-build: the full LOS tree does not fit on a free runner
+# (145 GB runner filled by one shallow sync + retries). Instead we clone the
+# FIVE projects whose headers the lib needs (~600 MB) and compile directly
+# with the runner's clang using -nostdinc + explicit include dirs. Shared
+# deps (liblog/libcutils/libutils/libion_exynos/libgiantmscl/libacryl) stay
+# undefined and resolve at load time from the vendor namespace.
 
 on:
   workflow_dispatch:
@@ -25,9 +24,8 @@ permissions:
   contents: write
 
 env:
-  MANIFEST_BRANCH: lineage-22.2
-  AOSP: /mnt/aosp
-  GRAPHICS_PATH: hardware/samsung_slsi-linaro/graphics
+  GRAPHICS: LineageOS/android_hardware_samsung_slsi-linaro_graphics
+  EXYNOS: LineageOS/android_hardware_samsung_slsi-linaro_exynos
 
 jobs:
   build:
@@ -37,156 +35,85 @@ jobs:
         with:
           path: repo-config
 
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@v10
-        with:
-          root-reserve-mb: 512
-          swap-size-mb: 1024
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          build-mount-path: '/mnt/aosp'
-
-      - name: Prepare build dir
+      - name: Clone the five header/source projects
         run: |
-          sudo chown -R "$USER" /mnt/aosp
-          df -h /mnt/aosp
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq git git-lfs gnupg flex bison build-essential \
-            zip unzip curl zlib1g-dev libssl-dev python3 python-is-python3 rsync ccache \
-            libxml2-utils xsltproc fontconfig file >/dev/null
-          mkdir -p ~/bin
-          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
-          chmod a+x ~/bin/repo
-          echo "$HOME/bin" >> "$GITHUB_PATH"
-          git config --global user.name "star2lte ci"
-          git config --global user.email "ci@example.com"
-          git config --global color.ui false
-
-      - name: repo init + local manifest
-        working-directory: /mnt/aosp
-        run: |
-          repo init --depth=1 -u https://github.com/LineageOS/android.git \
-            -b "$MANIFEST_BRANCH" --git-lfs --no-clone-bundle
-          mkdir -p .repo/local_manifests
-          cp "$GITHUB_WORKSPACE/repo-config/.repo-local-manifests/star2lte.xml" \
-            .repo/local_manifests/star2lte.xml
-
-      - name: repo sync (shallow)
-        working-directory: /mnt/aosp
-        run: |
-          {
-            ok=0
-            for i in 1 2 3 4 5 6 7 8; do
-              repo sync -c -j2 --no-clone-bundle --optimized-fetch --prune \
-                --force-sync --no-tags && ok=1 && break
-              echo "repo sync attempt $i failed; retrying"; sleep 60
-            done
-            echo "== disk after sync"; df -h /mnt
-          } 2>&1 | tee /tmp/sync.log
-          test -d "$GRAPHICS_PATH/base/libhwjpeg" || { echo "::error::graphics tree missing"; exit 1; }
-          [ $ok -eq 1 ] || { echo "::error::repo sync failed after retries (see sync.log)"; exit 1; }
-          test -d prebuilts/clang/host/linux-x86 || { echo "::error::prebuilts/clang missing (partial sync)"; exit 1; }
-          test -d bionic/libc/include || { echo "::error::bionic missing (partial sync)"; exit 1; }
-          test -d system/core/include || { echo "::error::system/core missing (partial sync)"; exit 1; }
-
-      - name: Prune tree (free disk — full sync fills ~80 GB)
-        working-directory: /mnt/aosp
-        run: |
-          df -h /mnt | tail -1
-          rm -rf .repo frameworks packages kernel bootable test \
-            prebuilts/gcc prebuilts/gdb prebuilts/ndk prebuilts/python prebuilts/rust
-          for d in device vendor system; do
-            keep=core; [ "$d" = device ] && keep=generic; [ "$d" = vendor ] && keep=lineage
-            [ -d "$d" ] || continue
-            for sub in "$d"/*/; do
-              b=$(basename "$sub")
-              [ "$b" = "$keep" ] || rm -rf "$sub"
-            done
-          done
-          df -h /mnt | tail -1
+          set -e
+          B=lineage-22.2
+          mkdir -p tree/hardware/samsung_slsi-linaro tree/system tree/bionic tree/hardware
+          clone() { git clone -q --depth=1 -b "$B" "https://github.com/$1" "$2"; }
+          clone "$GRAPHICS" tree/hardware/samsung_slsi-linaro/graphics &
+          clone "$EXYNOS"   tree/hardware/samsung_slsi-linaro/exynos &
+          clone LineageOS/android_hardware_libhardware tree/hardware/libhardware &
+          clone LineageOS/android_system_core          tree/system/core &
+          clone LineageOS/android_bionic               tree/bionic &
+          wait
+          test -d tree/hardware/samsung_slsi-linaro/graphics/base/libhwjpeg
+          echo "== disk"; df -h / | tail -1
 
       - name: Apply camera patch
-        working-directory: /mnt/aosp
+        working-directory: tree/hardware/samsung_slsi-linaro/graphics
         run: |
-          cd "$GRAPHICS_PATH"
-          set -o pipefail
+          set -e
           PATCH="$GITHUB_WORKSPACE/repo-config/patches/hardware_samsung_slsi-linaro_graphics/0001-libhwjpeg-star2lte-camera-fix.patch"
           { git apply --verbose "$PATCH" \
               || patch -p1 --fuzz=3 --no-backup-if-mismatch < "$PATCH"; } 2>&1 | tee /tmp/patch-apply.log
-          echo "== changed:"; git --no-pager diff --stat 2>/dev/null || true
           grep -q "Correcting inconsistent Exif image" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
           grep -q ": ExynosJpegEncoderForCamera(bBTBComp, 0) {}" base/libhwjpeg/ExynosJpegEncoderForCamera.cpp
 
-      - name: Build libhwjpeg (standalone clang, no soong)
-        working-directory: /mnt/aosp
+      - name: Build libhwjpeg (arm64 + arm)
         run: |
           {
-            CLANGDIR=$(ls -d prebuilts/clang/host/linux-x86/clang-r536225 2>/dev/null || true)
-            [ -z "$CLANGDIR" ] && CLANGDIR=$(ls -d prebuilts/clang/host/linux-x86/clang-r* 2>/dev/null | sort -V | tail -1)
-            [ -z "$CLANGDIR" ] && CLANGDIR=$(find prebuilts/clang/host/linux-x86 -maxdepth 2 -type d -name 'clang-*' | head -1)
-            CLANG="$CLANGDIR/bin/clang++"
-            echo "clang: $CLANG"; "$CLANG" --version | head -1
-            CPPINC=$(find "$CLANGDIR" -type d -path '*android_libc++*arm64*' -name 'c++' | head -1)
-            [ -n "$CPPINC" ] || CPPINC=$(find "$CLANGDIR" -type d -name 'c++' -path '*include*' | head -1)
-            echo "libc++ headers: $CPPINC"
-            RESINC=$(find "$CLANGDIR" -type d -name include -path '*clang*' | grep -v android_libc++ | head -1)
-            echo "clang builtins: $RESINC"
+            set -e
+            CLANG=clang++
+            RES=$(find /usr/lib/llvm-* /usr/lib/clang -maxdepth 6 -type d -name include -path '*lib/clang*' 2>/dev/null | head -1)
+            LIBCXX=$(find /usr/lib/llvm-* -maxdepth 5 -type d -name 'c++' -path '*include*' 2>/dev/null | head -1)
+            echo "clang builtins: $RES"; echo "libc++: $LIBCXX"
+            T=tree/hardware/samsung_slsi-linaro
+            B=tree/bionic
+            SC=tree/system/core
+            SRCDIR=$T/graphics/base/libhwjpeg
 
-            build_arch() {  # <arch uapi dir> <target triple> <output>
-              INC=""
-              for d in system/core/include bionic/libc/include \
-                bionic/libc/kernel/uapi bionic/libc/kernel/android/uapi \
-                bionic/libc/kernel/uapi/asm-$1 hardware/libhardware/include \
-                hardware/samsung_slsi-linaro/exynos/include \
-                hardware/samsung_slsi-linaro/graphics/base/libhwjpeg/include \
-                hardware/samsung_slsi-linaro/graphics/base/include \
-                ; do [ -d "$d" ] && INC="$INC -I$d"; done
+            build_arch() {  # <uapi asm dir> <target triple> <output>
+              INC="-I$SRCDIR/include -I$T/graphics/base/include \
+                -I$T/exynos/include \
+                -I$SC/include \
+                -I$B/libc/include \
+                -I$B/libc/kernel/uapi \
+                -I$B/libc/kernel/uapi/asm-$1 \
+                -I$B/libc/kernel/android/uapi \
+                -Itree/hardware/libhardware/include"
               # auto-discover exynos/ion/mscl/acryl header dirs
-              for h in exynos-hwjpeg.h acryl.h giant_mscl.h ion.h ExynosExif.h; do
-                for d in $(find hardware/samsung_slsi-linaro -name "$h" 2>/dev/null | xargs -n1 dirname 2>/dev/null); do
-                  case " $INC " in *" -I$d "*) ;; *) INC="$INC -I$d";; esac
+              for h in exynos-hwjpeg.h acryl.h giant_mscl.h ion.h; do
+                for d in $(find tree/hardware/samsung_slsi-linaro -name "$h" | xargs -n1 dirname); do
+                  case "$INC" in *"-I$d "*) ;; *) INC="$INC -I$d";; esac
                 done
               done
-              [ -n "$RESINC" ] && INC="$INC -isystem $RESINC"
-              [ -n "$CPPINC" ] && INC="$INC -isystem $CPPINC"
-              SRCDIR=hardware/samsung_slsi-linaro/graphics/base/libhwjpeg
               mkdir -p out-dist
-              # undefined shared deps (liblog/libcutils/libutils/libion_exynos/
-              # libgiantmscl/libacryl) resolve at load time from the vendor namespace
-              "$CLANG" --target=$2 -O2 -fPIC -std=c++17 \
+              "$CLANG" --target=$2 -O2 -fPIC -std=c++17 -nostdinc \
+                -isystem "$RES" -isystem "$LIBCXX" \
                 -DLOG_TAG='"exynos-libhwjpeg"' -DHWJPEG_ANDROID_VERSION=13 \
+                -D__ANDROID_API__=31 \
                 $INC "$SRCDIR"/*.cpp \
-                -nostdlib -shared -Wl,-soname,libhwjpeg.so -o "out-dist/$3" \
-                || exit 1
+                -nostdlib -shared -Wl,-soname,libhwjpeg.so -o "out-dist/$3"
+              echo "built out-dist/$3"
             }
 
             build_arch arm64 aarch64-linux-android31 libhwjpeg-arm64.so
             build_arch arm armv7a-linux-androideabi31 libhwjpeg-arm.so
+            file out-dist/*.so
             ls -l out-dist/
           } 2>&1 | tee /tmp/build.log
 
       - name: Collect + verify
-        working-directory: /mnt/aosp
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/dist"
+          mkdir -p dist
           got=0
-          for f in $(find out-dist -name 'libhwjpeg.so' 2>/dev/null); do
-            kind=$(file "$f")
-            if echo "$kind" | grep -q aarch64; then
-              cp "$f" "$GITHUB_WORKSPACE/dist/libhwjpeg-arm64.so"; got=1
-              echo "collected arm64: $f"
-            elif echo "$kind" | grep -qE 'ARM, EABI5|ELF 32-bit.*ARM'; then
-              cp "$f" "$GITHUB_WORKSPACE/dist/libhwjpeg-arm.so"; got=1
-              echo "collected arm: $f"
-            fi
+          for f in out-dist/libhwjpeg-arm64.so out-dist/libhwjpeg-arm.so; do
+            [ -f "$f" ] || continue
+            cp "$f" dist/; got=1
           done
           [ $got -eq 1 ] || { echo "::error::no libhwjpeg.so produced"; exit 1; }
-          cd "$GITHUB_WORKSPACE/dist"
+          cd dist
           for f in libhwjpeg-arm.so libhwjpeg-arm64.so; do
             [ -f "$f" ] || continue
             echo "== $f"; file "$f"
@@ -200,13 +127,12 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-        working-directory: repo-config
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/dist"
-          tail -c 400000 /tmp/build.log > "$GITHUB_WORKSPACE/dist/build.log" 2>/dev/null || echo "no build log" > "$GITHUB_WORKSPACE/dist/build.log"
-          cp /tmp/patch-apply.log "$GITHUB_WORKSPACE/dist/patch-apply.log" 2>/dev/null || true
-          cp /tmp/sync.log "$GITHUB_WORKSPACE/dist/sync.log" 2>/dev/null || true
-          echo "run ${{ github.run_id }} status ${{ job.status }} sha ${{ github.sha }}" > "$GITHUB_WORKSPACE/dist/STATUS.txt"
+          mkdir -p dist
+          cp /tmp/build.log dist/build.log 2>/dev/null || true
+          cp /tmp/patch-apply.log dist/patch-apply.log 2>/dev/null || true
+          echo "run ${{ github.run_id }} status ${{ job.status }} sha ${{ github.sha }}" > dist/STATUS.txt
+          cd repo-config
           gh release view camera-ci >/dev/null 2>&1 || gh release create camera-ci --prerelease \
             --title "Camera libhwjpeg (star2lte)" --notes "Patched libhwjpeg.so — replace /vendor/lib*/libhwjpeg.so on device. See manoto.md."
           gh release upload camera-ci "$GITHUB_WORKSPACE"/dist/* --clobber
