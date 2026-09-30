@@ -79,6 +79,8 @@ jobs:
               INC="-I$SRCDIR/include -I$T/graphics/base/include \
                 -I$T/exynos/include \
                 -I$SC/include \
+                -I$SC/liblog/include \
+                -I$SC/base/include \
                 -I$B/libc/include \
                 -I$B/libc/kernel/uapi \
                 -I$B/libc/kernel/uapi/asm-$1 \
@@ -92,7 +94,7 @@ jobs:
               done
               mkdir -p out-dist
               "$CLANG" --target=$2 -O2 -fPIC -std=c++17 -nostdinc \
-                -isystem "$RES" -isystem "$LIBCXX" \
+                -isystem "$LIBCXX" -isystem "$RES" \
                 -DLOG_TAG='"exynos-libhwjpeg"' -DHWJPEG_ANDROID_VERSION=13 \
                 $INC "$SRCDIR"/*.cpp \
                 -nostdlib -shared -Wl,-soname,libhwjpeg.so -o "out-dist/$3"
