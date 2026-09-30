@@ -730,3 +730,32 @@ avc_log_spoofing, sulog fd (-EOPNOTSUPP), adb_root (rsuntk halted it).
 2. mount -o remount,rw /vendor; cp new libs; chown root:root; chmod 644; restorecon.
 3. reboot; test photo capture + save in the stock camera app.
 4. Rollback = restore the backed-up originals.
+
+---
+
+## UPDATE 13 — 2026-09-30 (CAMERA FIXED — photo save works!)
+
+> فارسی: دوربین درست شد! عکس ذخیره می‌شه. ریشه‌ی واقعی: ناهماهنگی layout ی
+> exif_attribute_t بین بلاک سامسونگ و بیلد ما. ۱۴ اجر CI.
+
+### Final fix chain (all in camera-ci release, sha-verified, installed on device)
+1. Workflow rewritten: clone 5-6 repos directly (~600 MB) instead of the
+   impossible full-LOS sync; compile libhwjpeg standalone with the runner clang
+   (-nostdinc + explicit -isystem order: libc++ BEFORE clang builtins, bionic
+   after; project dirs -I; auto-discovered samsung_slsi header dirs).
+2. DT_NEEDED set replicated via stub libs (libacryl libc++ libc libdl
+   libgiantmscl libion_exynos liblog libm libutils libcutils) — without them the
+   HAL died at load (cannot locate GiantMscl::setSrc).
+3. -DNDEBUG (soong release builds define it; a live ALOG_ASSERT in
+   CAppMarkerWriter::WriteAPP1 aborted on capture).
+4. **THE REAL BUG: HWJPEG_ANDROID_VERSION=10.** The libexynoscamera3 blob fills
+   exif_attribute_t per the OLD layout (model[32], no offset_time — both gated
+   >= 12 / >= 11). Our version-13 build read past the blob's struct at
+   WriteAPP1's OffsetTime tags -> strlen(garbage) -> SIGSEGV @0x1 on every
+   capture. Version 10 keeps the blob-required 1-arg ctor (>=10) and matches
+   the layout (<11, <12). Verified: photo capture + save works.
+
+### State now
+- /vendor/lib{,64}/libhwjpeg.so = patched v10 build (commit 1821160, run
+  36673400210). Backups: /data/local/tmp/hwjpeg-backup/*.orig.
+- Test list still open: Bale (propspoof module live), Hamrah-e-Man.
