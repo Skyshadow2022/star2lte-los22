@@ -105,6 +105,7 @@ jobs:
                 -isystem $RES"
               mkdir -p out-dist
               "$CLANG" --target=$2 -O2 -fPIC -std=c++17 -nostdinc \
+                -include fcntl.h \
                 $SYS $PROJ \
                 -DLOG_TAG='"exynos-libhwjpeg"' -DHWJPEG_ANDROID_VERSION=13 \
                 "$SRCDIR"/*.cpp \
