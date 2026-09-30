@@ -79,13 +79,18 @@ jobs:
       - name: repo sync (shallow)
         working-directory: /mnt/aosp
         run: |
-          for i in 1 2 3 4 5; do
+          ok=0
+          for i in 1 2 3 4 5 6 7 8; do
             repo sync -c -j4 --no-clone-bundle --optimized-fetch --prune \
-              --force-sync --no-tags && break
+              --force-sync --no-tags && ok=1 && break
             echo "repo sync attempt $i failed; retrying"; sleep 30
           done
           echo "== disk after sync"; df -h /mnt
           test -d "$GRAPHICS_PATH/base/libhwjpeg" || { echo "::error::graphics tree missing"; exit 1; }
+          [ $ok -eq 1 ] || { echo "::error::repo sync failed after retries"; exit 1; }
+          test -d prebuilts/clang/host/linux-x86 || { echo "::error::prebuilts/clang missing (partial sync)"; exit 1; }
+          test -d bionic/libc/include || { echo "::error::bionic missing (partial sync)"; exit 1; }
+          test -d system/core/include || { echo "::error::system/core missing (partial sync)"; exit 1; }
 
       - name: Prune tree (free disk — full sync fills ~80 GB)
         working-directory: /mnt/aosp
