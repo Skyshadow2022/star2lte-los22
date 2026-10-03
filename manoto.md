@@ -759,3 +759,33 @@ avc_log_spoofing, sulog fd (-EOPNOTSUPP), adb_root (rsuntk halted it).
 - /vendor/lib{,64}/libhwjpeg.so = patched v10 build (commit 1821160, run
   36673400210). Backups: /data/local/tmp/hwjpeg-backup/*.orig.
 - Test list still open: Bale (propspoof module live), Hamrah-e-Man.
+
+---
+
+## UPDATE 14 — 2026-09-30 (Bale FIXED; Hamrah diagnosis; DAK bind-mount authorized+executed)
+
+> فارسی: بل کار می‌کنه ✓. همراه من می‌گه «دستگاه غیر مجاز» — اسپوف‌ها بعد از ریبوت
+> پاک شده بودن (ماژول propspoop در بوت اجرا نشده بود) + warranty_bit اسپوف نشده بود.
+
+### Bale: FIXED (user-confirmed)
+propspoof v1.0 (props) enough for Bale. Module upgraded to v1.1 (see modules/propspoof/
+in the repo): adds ro.boot.warranty_bit=0, ro.warranty_bit=0, ro.secureboot.lockstate=locked
+(Samsung Knox-style checks!) + a service.sh backup stage + logging to /data/local/tmp/propspoof.log.
+
+### Hamrah-e-Man (ir.mci.ecareapp): "دستگاه غیر مجاز است و یا دستکاری شده است"
+- NOT root-detection (props were spoofed when tested) — it's a tamper/integrity check.
+- Discovery: after the camera-install reboot ALL prop spoofs were GONE — the propspoof
+  module did NOT run at boot (script works when run manually, rc=0). Cause not yet
+  confirmed (ksud boot-stage processing); v1.1 adds service.sh as a second stage +
+  logging. Verification of the reboot behaviour PENDING (device disconnected mid-check).
+- Also found: ro.boot.warranty_bit=1 (bootloader unlocked) was never spoofed — added in v1.1.
+
+### DAK bind-mount (Play Integrity / keymaster attestation) — EXECUTED with Mehran's explicit authorization
+- Hamrah's tamper message + the empty Play Integrity verdict trace back to the keymaster
+  HAL being unable to read /efs/DAK (system:system 0640; HAL runs as nobody).
+- Live fix executed: tmpfs at /mnt/ramdak, cp -a /efs/DAK → chmod -R a+rX →
+  chcon -R u:object_r:prov_efs_file:s0 → mount --bind /mnt/ramdak /efs/DAK →
+  kill keymaster HAL (init restarts it). HAL started clean (no DAK errors in log).
+- NOTE: this is RUNTIME-ONLY — a reboot clears it (tmpfs). If Hamrah still fails after
+  the propspoof reboot verification, re-apply + then diagnose the app's own tamper checks.
+- Permanent fix = the keymaster service .rc patch in the next full ROM build (UPDATE 5).
