@@ -1,12 +1,11 @@
-name: star2lte ROM (Crave)
+name: star2lte ROM (Crave start)
 
-# Full LineageOS 22.2 ROM build for star2lte, built entirely in the cloud:
-# GitHub Actions runner -> `crave run` (build on Crave's powerful node) ->
-# pull the ROM to the runner -> publish to a GitHub Release. Nothing heavy
-# ever touches the maintainer's slow local connection.
+# Step 1 of 2. Queues a DETACHED LineageOS 22.2 user build on Crave and exits
+# fast, so a long free-queue wait can't kill it (the build survives independent
+# of this runner). When Crave reports it finished, run the "star2lte ROM
+# (Crave publish)" workflow to pull the zip and attach it to a Release.
 #
-# Requires one repo secret: CRAVE_CONF = the full contents of crave.conf
-# (downloaded from the foss.crave.io dashboard).
+# Requires repo secret CRAVE_CONF (full crave.conf from foss.crave.io).
 
 on:
   workflow_dispatch:
@@ -23,61 +22,40 @@ on:
         options: ['yes', 'no']
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
+  start:
     runs-on: ubuntu-latest
-    timeout-minutes: 350   # just under the 6h GitHub ceiling
+    timeout-minutes: 20
     steps:
       - name: Install crave CLI
         run: |
           mkdir -p "$HOME/bin"
           curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
-          mv ./crave "$HOME/bin/crave"
-          chmod +x "$HOME/bin/crave"
+          mv ./crave "$HOME/bin/crave"; chmod +x "$HOME/bin/crave"
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
-      - name: Write crave.conf (from secret)
+      - name: Configure crave workspace
         run: |
           printf '%s' "${CRAVE_CONF}" > crave.conf
-          test -s crave.conf || { echo "::error:: CRAVE_CONF secret is empty/missing"; exit 1; }
-          python3 -c "import json;json.load(open('crave.conf'))" && echo "crave.conf is valid JSON"
+          test -s crave.conf || { echo "::error:: CRAVE_CONF secret missing"; exit 1; }
+          git init -q
+          git remote add origin https://github.com/accupara/los22.git
+          # share one persistent workspace across runners (publish pulls from it)
+          printf 'LOS 22.1:\n  ignoreClientHostname: true\n' > crave.yaml
         env:
           CRAVE_CONF: ${{ secrets.CRAVE_CONF }}
 
-      - name: Prepare workspace (Crave project detection)
-        run: |
-          git init -q
-          git remote add origin https://github.com/accupara/los22.git
-          crave -n list | sed -n '1,20p'
-
-      - name: Build ROM on Crave
+      - name: Queue detached build on Crave
         run: |
           CLEAN=""
           [ "${{ github.event.inputs.clean }}" = "yes" ] && CLEAN="--clean"
-          crave -n run --projectID 93 --no-patch $CLEAN -- \
-            "curl -fsSL https://raw.githubusercontent.com/Skyshadow2022/star2lte-los22/main/crave/build.sh | BUILD_TYPE=${{ github.event.inputs.build_type }} bash -s"
-
-      - name: Pull ROM from Crave (cloud-to-cloud)
-        run: |
-          crave -n pull out/artifacts/star2lte-latest.zip || true
-          crave -n pull out/artifacts/SHA256SUMS || true
-          echo "== pulled =="; ls -lh out/artifacts/ || true
-
-      - name: Publish to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          zip="out/artifacts/star2lte-latest.zip"
-          test -f "$zip" || { echo "::error:: ROM zip not pulled"; exit 1; }
-          # rename to something descriptive
-          out="star2lte-los22.2-${{ github.event.inputs.build_type }}-${{ github.run_id }}.zip"
-          cp "$zip" "$out"
-          tag="rom-${{ github.run_id }}"
-          gh release create "$tag" "$out" out/artifacts/SHA256SUMS \
-            --repo "${{ github.repository }}" \
-            --title "star2lte LOS 22.2 (${{ github.event.inputs.build_type }})" \
-            --notes "Cloud build via Crave. Variant: ${{ github.event.inputs.build_type }}. Includes camera fix (HWJPEG_ANDROID_VERSION=9). Download this zip to the phone and flash." \
-          || gh release upload "$tag" "$out" out/artifacts/SHA256SUMS --repo "${{ github.repository }}" --clobber
-          echo "Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$tag"
+          echo "Queuing detached build (variant: ${{ github.event.inputs.build_type }})..."
+          crave -n run --projectID 93 --no-patch --detached $CLEAN -- \
+            "curl -fsSL https://raw.githubusercontent.com/Skyshadow2022/star2lte-los22/main/crave/build.sh | BUILD_TYPE=${{ github.event.inputs.build_type }} bash -s" \
+            | tee crave-start.log
+          echo "### Detached build queued" >> "$GITHUB_STEP_SUMMARY"
+          grep -iE "build id|build/info" crave-start.log >> "$GITHUB_STEP_SUMMARY" || true
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "When Crave shows it finished, run **star2lte ROM (Crave publish)** to get the zip." >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,55 @@
+name: star2lte ROM (Crave publish)
+
+# Step 2 of 2. Run this AFTER "star2lte ROM (Crave start)" reports the detached
+# build finished. Pulls the finished ROM from the shared Crave workspace
+# (cloud-to-cloud) and attaches it to a GitHub Release. No token is ever sent to
+# Crave — only the runner's built-in GITHUB_TOKEN touches the Release.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Install crave CLI
+        run: |
+          mkdir -p "$HOME/bin"
+          curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
+          mv ./crave "$HOME/bin/crave"; chmod +x "$HOME/bin/crave"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Configure crave workspace (same identity as start)
+        run: |
+          printf '%s' "${CRAVE_CONF}" > crave.conf
+          test -s crave.conf || { echo "::error:: CRAVE_CONF secret missing"; exit 1; }
+          git init -q
+          git remote add origin https://github.com/accupara/los22.git
+          printf 'LOS 22.1:\n  ignoreClientHostname: true\n' > crave.yaml
+        env:
+          CRAVE_CONF: ${{ secrets.CRAVE_CONF }}
+
+      - name: Pull ROM from Crave (cloud-to-cloud)
+        run: |
+          crave -n pull out/artifacts/star2lte-latest.zip || true
+          crave -n pull out/artifacts/SHA256SUMS || true
+          echo "== pulled =="; ls -lh out/artifacts/ 2>/dev/null || true
+          test -f out/artifacts/star2lte-latest.zip || { echo "::error:: zip not found in Crave workspace — is the build actually finished?"; exit 1; }
+
+      - name: Publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="star2lte-los22.2-user-$(date -u +%Y%m%d).zip"
+          cp out/artifacts/star2lte-latest.zip "$out"
+          tag="rom-${{ github.run_id }}"
+          gh release create "$tag" "$out" out/artifacts/SHA256SUMS \
+            --repo "${{ github.repository }}" \
+            --title "star2lte LOS 22.2 (user)" \
+            --notes "Cloud build via Crave. user variant + camera fix (HWJPEG_ANDROID_VERSION=10). Download to the phone and flash." \
+          || gh release upload "$tag" "$out" out/artifacts/SHA256SUMS --repo "${{ github.repository }}" --clobber
+          echo "Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$tag" | tee -a "$GITHUB_STEP_SUMMARY"
