@@ -38,6 +38,19 @@ jobs:
       - name: Crave list (job states)
         run: crave -n list 2>&1 | tail -40 || true
 
+      - name: Build progress (ninja %)
+        run: |
+          echo "=== running jobs ==="
+          crave -n list 2>&1 | sed -n '/Job Id/,$p' | tail -20 || true
+          jid=$(crave -n list 2>/dev/null | awk '/running/{print $1; exit}')
+          echo "running job id: ${jid:-<none>}"
+          if [ -n "$jid" ]; then
+            echo "=== last ninja progress lines for job $jid ==="
+            crave -n getlog --jobID "$jid" 2>&1 | grep -aoE '\[ *[0-9]+% +[0-9]+/[0-9]+\]' | tail -8 || echo "(no ninja progress yet — still syncing?)"
+            echo "=== last sync/stage lines ==="
+            crave -n getlog --jobID "$jid" 2>&1 | grep -aiE "Syncing|Fetching project|Checking out|repo sync|breakfast|including|installclean|ninja: Entering" | tail -6 || true
+          fi
+
       - name: Dump build log (getlog variants)
         run: |
           echo "===================== getlog --help ====================="
