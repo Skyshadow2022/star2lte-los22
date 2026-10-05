@@ -1,0 +1,50 @@
+name: star2lte ROM (Crave diag)
+
+# Pull a finished/failed Crave build's logs from the cloud (reliable network),
+# so build failures can be diagnosed without the maintainer's flaky local link.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: 'Crave build id'
+        required: true
+        default: '303793'
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Install crave CLI
+        run: |
+          mkdir -p "$HOME/bin"
+          curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
+          mv ./crave "$HOME/bin/crave"; chmod +x "$HOME/bin/crave"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Configure crave workspace (same identity)
+        run: |
+          printf '%s' "${CRAVE_CONF}" > crave.conf
+          git init -q
+          git remote add origin https://github.com/accupara/los22.git
+          printf 'LOS 22.1:\n  ignoreClientHostname: true\n' > crave.yaml
+        env:
+          CRAVE_CONF: ${{ secrets.CRAVE_CONF }}
+
+      - name: Dump build log + error.log
+        run: |
+          echo "===================== getlog ${{ inputs.build_id }} (tail 200) ====================="
+          crave -n getlog ${{ inputs.build_id }} 2>&1 | tail -200 || true
+          echo ""
+          echo "===================== pull + show out/error.log ====================="
+          crave -n pull out/error.log 2>&1 || true
+          echo "----- error.log (tail 200) -----"
+          tail -200 out/error.log 2>/dev/null || echo "(no out/error.log present)"
+          echo ""
+          echo "===================== what IS in out/ ====================="
+          crave -n pull out/build_date.txt 2>&1 || true
+          crave -n ssh -- "ls -la /tmp/src/android/out 2>/dev/null | head -40; echo '--- product ---'; ls -la /tmp/src/android/out/target/product/star2lte 2>/dev/null | head -40" 2>&1 || echo "(ssh not available)"
