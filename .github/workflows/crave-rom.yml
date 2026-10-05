@@ -47,6 +47,11 @@ jobs:
         env:
           CRAVE_CONF: ${{ secrets.CRAVE_CONF }}
 
+      - name: Clear any prior jobs on this workspace (avoid conflicts)
+        run: |
+          crave -n stop --all 2>&1 | tail -10 || true
+          sleep 10
+
       - name: Queue detached build on Crave
         run: |
           CLEAN=""
