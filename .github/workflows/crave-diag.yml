@@ -35,16 +35,19 @@ jobs:
         env:
           CRAVE_CONF: ${{ secrets.CRAVE_CONF }}
 
-      - name: Dump build log + error.log
+      - name: Crave list (job states)
+        run: crave -n list 2>&1 | tail -40 || true
+
+      - name: Dump build log (getlog variants)
         run: |
-          echo "===================== getlog ${{ inputs.build_id }} (tail 200) ====================="
-          crave -n getlog ${{ inputs.build_id }} 2>&1 | tail -200 || true
-          echo ""
-          echo "===================== pull + show out/error.log ====================="
-          crave -n pull out/error.log 2>&1 || true
-          echo "----- error.log (tail 200) -----"
-          tail -200 out/error.log 2>/dev/null || echo "(no out/error.log present)"
-          echo ""
-          echo "===================== what IS in out/ ====================="
-          crave -n pull out/build_date.txt 2>&1 || true
-          crave -n ssh -- "ls -la /tmp/src/android/out 2>/dev/null | head -40; echo '--- product ---'; ls -la /tmp/src/android/out/target/product/star2lte 2>/dev/null | head -40" 2>&1 || echo "(ssh not available)"
+          echo "===================== getlog --help ====================="
+          crave -n getlog --help 2>&1 | head -30 || true
+          echo "===================== getlog (current workspace, tail 200) ====================="
+          crave -n getlog 2>&1 | tail -200 || true
+          echo "===================== getlog --jobID ${{ inputs.build_id }} ====================="
+          crave -n getlog --jobID ${{ inputs.build_id }} 2>&1 | tail -200 || true
+
+      - name: Inspect workspace via ssh
+        run: |
+          echo "===================== ssh: what is in the workspace ====================="
+          crave -n ssh -- "pwd; echo '--- top ---'; ls -la | head; echo '--- .repo? ---'; ls -la .repo 2>&1 | head; echo '--- out? ---'; ls -la out 2>&1 | head -40; echo '--- error.log ---'; tail -200 out/error.log 2>&1" 2>&1 || echo "(ssh not available on this account)"
