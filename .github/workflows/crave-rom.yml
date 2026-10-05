@@ -1,9 +1,10 @@
-name: star2lte ROM (Crave)
+name: star2lte ROM (Crave start)
 
-# Attached build: `crave run` streams the full Crave build log into THIS GitHub
-# Actions job (reliable cloud network), so failures are diagnosable and a
-# success is pulled + published to a Release in the same run. Nothing heavy
-# touches the maintainer's local link.
+# DETACHED build: queues a LineageOS 22.2 build on Crave and exits fast. The
+# build then runs independently on Crave for its full duration (can be 8-10h on
+# the free queue) — it does NOT depend on this job staying alive, so GitHub's 6h
+# ceiling is irrelevant. When Crave reports it finished (dashboard/email), run
+# "star2lte ROM (Crave publish)" to pull the zip into a Release.
 #
 # Requires repo secret CRAVE_CONF (full crave.conf from foss.crave.io).
 
@@ -16,18 +17,18 @@ on:
         type: choice
         options: [user, userdebug]
       clean:
-        description: 'Clean Crave workspace (first run: yes; resume: no)'
-        default: 'yes'
+        description: 'Clean workspace? (first build: yes; resume with cache: no)'
+        default: 'no'
         type: choice
-        options: ['yes', 'no']
+        options: ['no', 'yes']
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
+  start:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 20
     steps:
       - name: Install crave CLI
         run: |
@@ -46,40 +47,17 @@ jobs:
         env:
           CRAVE_CONF: ${{ secrets.CRAVE_CONF }}
 
-      - name: Build on Crave (attached, streams log)
-        id: build
+      - name: Queue detached build on Crave
         run: |
           CLEAN=""
           [ "${{ github.event.inputs.clean }}" = "yes" ] && CLEAN="--clean"
-          crave -n run --projectID 93 --no-patch $CLEAN -- \
-            "curl -fsSL https://raw.githubusercontent.com/Skyshadow2022/star2lte-los22/main/crave/build.sh | BUILD_TYPE=${{ github.event.inputs.build_type }} bash -s"
-
-      - name: Pull ROM from Crave
-        if: ${{ success() }}
-        run: |
-          crave -n pull out/artifacts/star2lte-latest.zip || true
-          crave -n pull out/artifacts/SHA256SUMS || true
-          ls -lh out/artifacts/ 2>/dev/null || true
-          test -f out/artifacts/star2lte-latest.zip || { echo "::error:: zip not produced"; exit 1; }
-
-      - name: Publish to GitHub Release
-        if: ${{ success() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          out="star2lte-los22.2-${{ github.event.inputs.build_type }}-$(date -u +%Y%m%d).zip"
-          cp out/artifacts/star2lte-latest.zip "$out"
-          tag="rom-${{ github.run_id }}"
-          gh release create "$tag" "$out" out/artifacts/SHA256SUMS --repo "${{ github.repository }}" \
-            --title "star2lte LOS 22.2 (${{ github.event.inputs.build_type }})" \
-            --notes "Cloud build via Crave. ${{ github.event.inputs.build_type }} + camera fix (HWJPEG_ANDROID_VERSION=10). Download to the phone and flash." \
-          || gh release upload "$tag" "$out" out/artifacts/SHA256SUMS --repo "${{ github.repository }}" --clobber
-          echo "Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$tag" | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: On failure, pull error.log
-        if: ${{ failure() }}
-        run: |
-          echo "=== pulling out/error.log (if any) ==="
-          crave -n pull out/error.log 2>&1 || true
-          echo "----- error.log tail -----"
-          tail -200 out/error.log 2>/dev/null || echo "(no error.log — failure was before/at sync)"
+          echo "Queuing detached ${{ github.event.inputs.build_type }} build (clean=${{ github.event.inputs.clean }})..."
+          crave -n run --projectID 93 --no-patch --detached $CLEAN -- \
+            "curl -fsSL https://raw.githubusercontent.com/Skyshadow2022/star2lte-los22/main/crave/build.sh | BUILD_TYPE=${{ github.event.inputs.build_type }} bash -s" \
+            | tee crave-start.log
+          {
+            echo "### Detached build queued"
+            grep -iE "scheduled|build id|build/info" crave-start.log || true
+            echo ""
+            echo "It runs on Crave independently (hours). When it finishes, run **star2lte ROM (Crave publish)**."
+          } >> "$GITHUB_STEP_SUMMARY"
