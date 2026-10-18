@@ -841,3 +841,39 @@ init: cannot execv('/data/adb/ksud') ... Permission denied   -> exit 127
   cache is reset after adding rules); (b) workaround — run `/data/adb/ksud
   post-fs-data`, `services`, `boot-completed` manually via adb su after each boot
   (late: ReZygisk needs a zygote restart; props/propspoof work for new app launches).
+
+### UPDATE 15c — 2026-10-18 Wepod root cause: Play Integrity (chained to teeBroken keymaster)
+Wepod = **com.dotin.wepod 5.0.2** (versionCode 101702, minSdk 26, targetSdk 36).
+- Launch logcat: process starts, inits Firebase/EventBus, UI window gets a CLOSE
+  transition ~0.7 s in, then the process lingers ~11 s and **self-kills (SIG 9 from
+  its own thread)** — a RASP self-terminate, no Java crash / tombstone / avc.
+- At the moment it closes, the system references
+  `finsky…ExpressIntegrity`, `gms.droidguard.DroidGuardService`,
+  `gms.play.integrity.api…Integrity` → **Wepod gates on the Play Integrity API.**
+  The ~11 s wait = the DroidGuard round-trip; a failing verdict → self-kill.
+- So it is NOT the kernel and NOT plain prop/root detection: it is the same broken
+  hardware attestation from UPDATE 5/14. `cat /data/adb/tricky_store/tee_status`
+  = **`teeBroken=true`** (TrickyStore knows the TEE can't attest). Root cause:
+  `android.hardware.keymaster@3.0-service` runs as **nobody**, `/efs/DAK` is
+  system:system 0640, the UPDATE-14 DAK bind-mount is gone (reboot cleared it).
+- Also: `target.txt` does NOT list com.dotin.wepod (only the 3 vvb2060/nullptr
+  test apps). Keybox DeviceID="sw" (likely a software/AOSP keybox, not a valid
+  Google-signed one → won't pass DEVICE integrity even with teeBroken fallback).
+- Note on this session's test: modules were started *manually mid-boot* (UPDATE
+  15b), AFTER gms/DroidGuard had already come up without injection → GMS likely
+  cached a failing verdict. A clean boot-time module start (v7 kernel) is the
+  prerequisite before re-testing — don't conclude from the manual-start result.
+
+### Plan to make Wepod pass (after v7 kernel confirms modules run at boot)
+1. **Permanent keymaster/DAK fix in a full ROM build** (UPDATE 5 patch
+   `patches/device_samsung_exynos9810-common/0001-*.patch`): keymaster runs with
+   access to /efs/DAK → hardware attestation works. This is the clean fix; the
+   bind-mount is only a runtime band-aid.
+2. **PIF**: confirm the Pixel 9 fingerprint still gives MEETS_DEVICE_INTEGRITY
+   (PIF v18 is installed; fingerprints rot — may need an autopif refresh).
+3. **Valid keybox** for TrickyStore (the "sw" one won't pass); add Google DroidGuard
+   path if needed. TrickyStore target.txt spoofs keystore attestation; for Play
+   Integrity the GMS/DroidGuard flow is what matters (PIF+ReZygisk handle that).
+4. Verify with gr.nikolasspyr.integritycheck (installed) BEFORE retesting Wepod,
+   and clear GMS/DroidGuard verdict cache (`pm clear com.google.android.gms.unstable`)
+   so a fresh verdict is fetched.
