@@ -955,3 +955,34 @@ Reliable escape hatch on-device: GLOBAL `setenforce 0` (su then works everywhere
 3. Check if susfs's SEC_SELINUX hooks or the manual-hook patch alter the permissive
    path (the `[-] CMD 0x555a0 SUSFS operation not supported` suggests susfs supercall
    is half-wired on this kernel too).
+
+### UPDATE 16 — 2026-10-18 🎉 SOLVED: reverted root to KernelSU-Next, everything works
+Option B worked. The rksu+susfs kernel (UPDATE 8-15) had a broken boot-time sepolicy
+injection: init could not exec /data/adb/ksud (su domain never effectively permissive
+despite same policydb / bit set / AVC flushed — a Samsung SELinux-porting quirk we
+could not crack). So no modules ran at boot → banking apps' Play Integrity failed.
+
+**Fix: flashed the KernelSU-Next kernel** `boot-ksunext-v3.4.0-legacy.img`
+(release `kernel-ci`, sha 60d3fd266daf940610235a61ef8d1ec3b07bb01107116f26c74f813d44262174;
+Odin tar in same release). On this kernel init execs ksud fine at boot (status 0),
+modules bootstrap, PIF spoofs props (ro.build.type=user, verifiedbootstate=green).
+Rollback kernels: v8 rksu (scratchpad), build-#1 boot.img (D:\star2lte-rom\2026-09-24).
+
+**Result (device-confirmed):** Wepod opens & stays (MainActivity resumed, no SIG9).
+User confirms **Bale and Hamrah-e-Man also work now** — all with the OLD "sw" keybox
+(PIF alone carried BASIC+DEVICE integrity; no valid keybox needed for these apps).
+
+**Manager installed:** `KernelSU_Next_v3.4.0_33294-release.apk` (com.rifsxd.ksunext,
+from KernelSU-Next GH v3.4.0) — matches kernel. Home shows **Working, v3.4.0-legacy
+(33294-4), Superusers 2, Modules 7**, Kprobes hook, mountify v2.0.4, ReZygisk enabled.
+Also saved the `-spoofed` variant + both in D:\star2lte-rom\integrity-2026-10-18\.
+Manager offers upgrade to v3.4.2 (33355) with Main/Spoofed build types (optional).
+
+**Trade-off:** SUSFS is dropped (this kernel has no susfs). Root is hidden by PIF +
+ReZygisk + TrickyStoreOSS + mountify umount, which is enough for these apps. If an app
+later needs susfs-level hiding, that's a future kernel project — do NOT go back to the
+rksu kernel (its boot sepolicy is broken).
+
+**Minor note:** adb-shell `su` is in a restricted profile (can't write /data/adb) by
+KSU-Next default; the Manager app itself has full root/module control. To let adb su
+write there, grant Shell full root in Manager → Superuser. Not needed for normal use.
