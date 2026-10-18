@@ -789,3 +789,29 @@ in the repo): adds ro.boot.warranty_bit=0, ro.warranty_bit=0, ro.secureboot.lock
 - NOTE: this is RUNTIME-ONLY — a reboot clears it (tmpfs). If Hamrah still fails after
   the propspoof reboot verification, re-apply + then diagnose the app's own tamper checks.
 - Permanent fix = the keymaster service .rc patch in the next full ROM build (UPDATE 5).
+
+---
+
+## UPDATE 15 — 2026-10-18 (Wepod won't open — diagnosed, NOT kernel)
+
+> فارسی: وی‌پاد (com.dotin.wepod 5.0.2) باز نمی‌شه — مشکل کرنل نیست؛ خود اپ
+> محیط رو تشخیص می‌ده و خودش رو می‌بنده. propspoof توی این بوت اصلاً اجرا نشده.
+
+- Logcat: process starts 16:26:55.5 → task CLOSE at 56.2 (0.7 s, still on splash, no
+  dialog) → a few DNS queries → `Process(<own pid>): Sending signal ... SIG: 9` at 07.8.
+  = app-side RASP self-kill. No Java crash, no tombstone, no SELinux denial → not kernel.
+- Clean: Wepod's mount namespace shows NO module/ksu/overlay/hosts mounts (umount OK);
+  `/system/bin/su` is only KernelSU's hook for granted uids (same inode as sh, not
+  in the readdir listing); KSU manager package not visible in `pm list`.
+- Exposed: ALL build props real — ro.build.type=userdebug, tags=test-keys,
+  ro.debuggable=1, verifiedbootstate=orange, ro.boot.warranty_bit=1. propspoof v1.1
+  is "enabled" in ksud but **/data/local/tmp/propspoof.log does not exist → its
+  scripts did not run at all this boot** (same open bug as UPDATE 14). Root (su
+  domain) also got "Permission denied" listing /data/adb/modules/propspoof — check
+  its dir perms/SELinux label next (`ls -laZ /data/adb/modules`), device dropped
+  off adb before that.
+- Also exposed: Developer options + USB debugging ON; Termux, Termux:API and
+  Play Integrity checker (gr.nikolasspyr.integritycheck) installed.
+- Next: (1) fix propspoof boot execution (labels/perms), verify after reboot;
+  (2) test Wepod with Developer options OFF; (3) the permanent fix for the props is
+  a `user`/release-keys ROM build (also needed for the keymaster DAK patch).
