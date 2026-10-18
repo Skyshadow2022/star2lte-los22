@@ -20,11 +20,10 @@ env:
   KERNEL_REPO: https://github.com/ExyHyperBrick/android_kernel_samsung_exynos9810
   KERNEL_BRANCH: lineage-22.2
   DEFCONFIG: exynos9810-star2lte_defconfig
-  KSU_TAG: v3.4.0-legacy
-  # = manager v3.4.0 versionCode; legacy Kbuild computes the same value from a
-  # full clone (30000 + 3005 commits + 289), pinned so a shallow clone can't
-  # make it drift like build #2 did (33004).
-  KSU_VERSION: "33294"
+  KSU_TAG: legacy
+  # legacy branch HEAD = v3.4.2 feature ports + SELinux policy-mutation fixes
+  # (2026-10-17). Pin the reported version to 33355 to match manager v3.4.2.
+  KSU_VERSION: "33355"
   CLANG: clang-r536225
   BASE_BOOT_TAG: 22.2-20260925-build2
   BASE_BOOT_SHA256: 032a6912984e7072ae9a87f56608068a8e37297a154e82d3140b497facf65a14
@@ -139,10 +138,10 @@ jobs:
           python3 tools/samsung_bootimg.py info boot.img
           strings kernel/out/arch/arm64/boot/Image | grep -m1 'Linux version'
           mkdir -p dist
-          cp boot.img dist/boot-ksunext-v3.4.0-legacy.img
-          tar --format=ustar -C dist -cf dist/boot-ksunext-odin.tar --transform 's/.*/boot.img/' boot-ksunext-v3.4.0-legacy.img
+          cp boot.img dist/boot-ksunext-v3.4.2-legacy.img
+          tar --format=ustar -C dist -cf dist/boot-ksunext-odin.tar --transform 's/.*/boot.img/' boot-ksunext-v3.4.2-legacy.img
           cp kernel/out/.config dist/kernel.config
-          (cd dist && sha256sum boot-ksunext-v3.4.0-legacy.img boot-ksunext-odin.tar > SHA256SUMS)
+          (cd dist && sha256sum boot-ksunext-v3.4.2-legacy.img boot-ksunext-odin.tar > SHA256SUMS)
           cat dist/SHA256SUMS
 
       - name: Publish to "kernel-ci" release
