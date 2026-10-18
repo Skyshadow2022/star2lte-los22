@@ -43,6 +43,22 @@ src = sub_once(
     "DEFINE_MUTEX(ksu_rules)",
 )
 
+# PROBE + FIX: on this Samsung 4.9 the rules reported success but su stayed
+# enforcing. Log whether the policydb rksu edits is the SAME object the kernel's
+# enforcement reads (the global `policydb`), the policy version, and enforcing.
+# `extern struct policydb policydb;` comes from ss/services.h (already included).
+src = sub_once(
+    src,
+    "\tdb = get_policydb();\n\n\tksu_permissive(db, KERNEL_SU_DOMAIN);\n",
+    "\tdb = get_policydb();\n"
+    "\t{\n"
+    "\t\textern int selinux_enforcing;\n"
+    "\t\tpr_info(\"KSU-PROBE: get_policydb=%p &policydb=%p same=%d policyvers=%u enforcing=%d\\n\",\n"
+    "\t\t\tdb, &policydb, (db == &policydb), db->policyvers, selinux_enforcing);\n"
+    "\t}\n\n\tksu_permissive(db, KERNEL_SU_DOMAIN);\n",
+    "KSU-PROBE get_policydb",
+)
+
 src = sub_once(
     src,
     "\tksu_permissive(db, KERNEL_SU_DOMAIN);\n",

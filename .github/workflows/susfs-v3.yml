@@ -211,10 +211,10 @@ jobs:
           python3 tools/samsung_bootimg.py info boot.img
           strings kernel/out/arch/arm64/boot/Image | grep -m1 'Linux version'
           mkdir -p dist
-          cp boot.img dist/boot-rksu-susfs-v7.img
-          tar --format=ustar -C dist -cf dist/boot-rksu-susfs-v7-odin.tar --transform 's/.*/boot.img/' boot-rksu-susfs-v7.img
+          cp boot.img dist/boot-rksu-susfs-v8.img
+          tar --format=ustar -C dist -cf dist/boot-rksu-susfs-v8-odin.tar --transform 's/.*/boot.img/' boot-rksu-susfs-v8.img
           cp kernel/out/.config dist/kernel.config
-          (cd dist && sha256sum boot-rksu-susfs-v7.img boot-rksu-susfs-v7-odin.tar > SHA256SUMS)
+          (cd dist && sha256sum boot-rksu-susfs-v8.img boot-rksu-susfs-v8-odin.tar > SHA256SUMS)
           cat dist/SHA256SUMS
           # NOTE: the sidex15 universal ksu_susfs binary works with this kernel's
           # reboot-syscall susfs dispatch (verified on device) - no custom tool build.
