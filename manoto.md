@@ -986,3 +986,20 @@ rksu kernel (its boot sepolicy is broken).
 **Minor note:** adb-shell `su` is in a restricted profile (can't write /data/adb) by
 KSU-Next default; the Manager app itself has full root/module control. To let adb su
 write there, grant Shell full root in Manager → Superuser. Not needed for normal use.
+
+### UPDATE 17 — 2026-10-18 v3.4.2 NOT viable on 4.9; stay on v3.4.0-legacy
+Tried to build KernelSU-Next v3.4.2 for the manager's update prompt. There is NO
+`v3.4.2-legacy` tag — v3.4.1/v3.4.2 are the `next` (GKI) line only. Built from the
+`legacy` branch HEAD (had 3.4.2 feature ports + 2026-10-17 SELinux fixes) with
+KSU_VERSION_OVERRIDE=33355, but it FAILS to compile on this 4.9 kernel:
+`security.h: fatal error: 'flask.h' file not found` and
+`selinux/rules.c:61: use of undeclared identifier 'selinux_state'` (legacy HEAD
+added an unguarded `selinux_state.ss` seqno line in reset_avc_cache + a
+`#include "security.h"`; its newer SELinux code assumes >= 4.19). These are
+upstream legacy-branch regressions for pre-4.19 kernels; not worth chasing.
+DECISION: **stay on v3.4.0-legacy (33294) + manager v3.4.0 (33294)** — the newest
+STABLE legacy pair for this device; everything works. Reverted kernel.yml back to
+KSU_TAG=v3.4.0-legacy / KSU_VERSION=33294. Ignore the manager's v3.4.2 update
+prompt (do NOT tap it — it would install a next-branch manager that mismatches the
+legacy kernel and hides the Superuser/Modules tabs). Device was never reflashed
+(the v3.4.2 build failed), so the phone stays on the working v3.4.0 kernel.
