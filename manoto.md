@@ -1003,3 +1003,11 @@ KSU_TAG=v3.4.0-legacy / KSU_VERSION=33294. Ignore the manager's v3.4.2 update
 prompt (do NOT tap it — it would install a next-branch manager that mismatches the
 legacy kernel and hides the Superuser/Modules tabs). Device was never reflashed
 (the v3.4.2 build failed), so the phone stays on the working v3.4.0 kernel.
+
+### Debugging approach (Mehran's preference)
+When an app won't open/misbehaves: use **Frida on demand** to find the exact failing
+check, then fix it. Do NOT install the always-on "Frida Server for KernelSU" module
+(banking apps detect frida-server). Instead: push frida-server, run it only during
+analysis, `pkill frida-server` after. The attestation modules TrickyStore /
+OhMyKeyMint / TEESimulator are alternatives for the same job — never run two at once
+(current working stack = TrickyStoreOSS + PlayIntegrityFix).
