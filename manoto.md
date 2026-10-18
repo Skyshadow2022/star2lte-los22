@@ -923,3 +923,35 @@ adb shell su -c "cp /data/adb/tricky_store/keybox.xml /data/adb/tricky_store/key
 adb shell su -c "pm clear com.google.android.gms.unstable"           # drop cached verdict
 # reboot, then open VD Google / integritycheck to read the verdict, then test Wepod.
 ```
+
+### UPDATE 15f — 2026-10-18 v8 probe: policydb is correct, permissive STILL not honored
+Flashed boot-rksu-susfs-v8.img (sha 9af5e8be...). Boot probe (my new KSU-PROBE line):
+`KSU-PROBE: get_policydb=<p> &policydb=<p> same=1 policyvers=30 enforcing=1`
+then `permissive su = 1`, `allow su * * * = 1`, `allow init su * * = 1`, `avc reset`.
+- **same=1**: rksu edits the SAME global `policydb` the kernel enforcement reads.
+- permissive bit set OK (set_type_state found "su", no error), AVC flushed OK.
+- Built .config: CONFIG_ALWAYS_ENFORCE NOT set (so AVD_FLAGS_PERMISSIVE=0x0001),
+  CONFIG_SECURITY_SELINUX_DEVELOP=y, SEC_RESTRICT_ROOTING/KNOX_KAP not set.
+- Only ONE policy load at boot, BEFORE apply, no reload after (checked logcat).
+- STILL: init `cannot execv('/data/adb/ksud')` EACCES status 127 (no avc logged —
+  su is dontaudit). su shell can't read/write /data/adb under enforcing.
+CONCLUSION: every standard precondition for a permissive su domain is satisfied,
+yet it is not honored at runtime. This is a non-obvious Samsung SELinux-porting
+quirk (SEC_SELINUX_PORTING_COMMON) not visible in source/config/boot logs.
+Ruled out: wrong policydb, policy reload, ALWAYS_ENFORCE, AVC not flushed, early
+timing/reload. The user's test confirmed even after all 3 manual `ksud` stages,
+su still cannot write /data/adb (ksud only applies MODULE sepolicy.rule, not the
+core su rules — those come only from the kernel's apply_kernelsu_rules).
+Reliable escape hatch on-device: GLOBAL `setenforce 0` (su then works everywhere).
+
+### Next kernel experiments to try
+1. Add a KSU-PROBE readback INSIDE set_type_state: after ebitmap_set_bit, log
+   ebitmap_get_bit(&db->permissive_map, su_value) AND su type->value, AND in a
+   test call `security_compute_av(su_sid, adb_data_file_sid, dir, &avd)` log
+   avd.flags to see if AVD_FLAGS_PERMISSIVE is actually set for su at apply time.
+2. Compare the OLD KernelSU-Next kernel (build #2, KSU 33294, pre-rksu/susfs):
+   did IT bootstrap ksud + modules at boot? If yes, susfs/rksu switch introduced
+   this; consider reverting root to KernelSU-Next and dropping susfs.
+3. Check if susfs's SEC_SELINUX hooks or the manual-hook patch alter the permissive
+   path (the `[-] CMD 0x555a0 SUSFS operation not supported` suggests susfs supercall
+   is half-wired on this kernel too).
