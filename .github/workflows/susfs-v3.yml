@@ -36,6 +36,7 @@ on:
       - tools/rksu_manual_hooks.py
       - tools/rksu_abi_backport.py
       - tools/ksu_susfs_v2.c
+      - tools/rksu_boot_sepolicy_fix.py
 
 permissions:
   contents: write
@@ -139,6 +140,10 @@ jobs:
           # v3.2.2 manager ABI: NEW_GET_ALLOW/DENY_LIST + SET_INIT_PGRP +
           # GET_SULOG_FD ioctls + KSU_VERSION bump for its min-version gate.
           python3 "$GITHUB_WORKSPACE/tools/rksu_abi_backport.py"
+          # boot-time sepolicy rules never took effect (init could not exec ksud,
+          # EACCES) -> flush the AVC after apply_kernelsu_rules + log rule results.
+          python3 "$GITHUB_WORKSPACE/tools/rksu_boot_sepolicy_fix.py"
+          grep -n "rksu_boot_sepolicy_fix\|reset_avc_cache();" drivers/kernelsu/selinux/rules.c
           echo "== sanity =="
           grep -c '_impl' fs/susfs.c
           grep -n 'rksu_susfs_compat.o' drivers/kernelsu/Makefile
@@ -206,10 +211,10 @@ jobs:
           python3 tools/samsung_bootimg.py info boot.img
           strings kernel/out/arch/arm64/boot/Image | grep -m1 'Linux version'
           mkdir -p dist
-          cp boot.img dist/boot-rksu-susfs-v4.img
-          tar --format=ustar -C dist -cf dist/boot-rksu-susfs-v4-odin.tar --transform 's/.*/boot.img/' boot-rksu-susfs-v4.img
+          cp boot.img dist/boot-rksu-susfs-v7.img
+          tar --format=ustar -C dist -cf dist/boot-rksu-susfs-v7-odin.tar --transform 's/.*/boot.img/' boot-rksu-susfs-v7.img
           cp kernel/out/.config dist/kernel.config
-          (cd dist && sha256sum boot-rksu-susfs-v4.img boot-rksu-susfs-v4-odin.tar > SHA256SUMS)
+          (cd dist && sha256sum boot-rksu-susfs-v7.img boot-rksu-susfs-v7-odin.tar > SHA256SUMS)
           cat dist/SHA256SUMS
           # NOTE: the sidex15 universal ksu_susfs binary works with this kernel's
           # reboot-syscall susfs dispatch (verified on device) - no custom tool build.
