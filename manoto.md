@@ -815,3 +815,29 @@ in the repo): adds ro.boot.warranty_bit=0, ro.warranty_bit=0, ro.secureboot.lock
 - Next: (1) fix propspoof boot execution (labels/perms), verify after reboot;
   (2) test Wepod with Developer options OFF; (3) the permanent fix for the props is
   a `user`/release-keys ROM build (also needed for the keymaster DAK patch).
+
+### UPDATE 15b — ROOT CAUSE: KernelSU boot stages never run (SELinux), since the rksu kernel
+Captured right after a clean reboot (logcat -b all):
+```
+init: processing action (post-fs-data) from (/system/etc/init/atrace.rc:2)   <- KSU rc injected into atrace.rc (rc_count 351)
+init: starting service 'exec 10 (/data/adb/ksud post-fs-data)' ... context u:r:su:s0
+init: cannot execv('/data/adb/ksud') ... Permission denied   -> exit 127
+(same for 'ksud services'; boot-completed likewise)
+```
+- So NO module stage runs at boot: 0 module mounts in init's namespace, no zygiskd /
+  TrickyStore daemons, propspoof never runs (no /data/local/tmp/propspoof.log),
+  bindhosts "remove" and modules_update (ViPER, susfs4ksu since 09-27) never applied.
+  This is also why UPDATE 14 saw "spoofs gone after reboot" — live-applied things
+  worked, boot-time never did.
+- Same cause explains root (`adb shell su`, u:r:su:s0) getting EACCES on
+  /data/adb/modules/propspoof, /data/adb/ksu/bin and `dmesg` (klogctl): KernelSU's
+  "su domain can do anything" sepolicy rules are NOT in effect, although the kernel
+  logs "/system/bin/init second_stage executed" (where apply_kernelsu_rules() runs).
+  No avc lines are logged for it (su is dontaudit'ed in AOSP userdebug policy).
+- Kernel: 4.9.337-ies-gd54533f1546b, KSU_BRANCH susfs-rksu-master, KSU_VERSION 32490
+  (UPDATE 8-10 build). ksud on device: 3.2.2-10-legacy-42-g915b4872 (rsuntk manager).
+- Fix options: (a) proper — debug apply_kernelsu_rules()/AVC reset on this 4.9
+  rksu kernel in CI (check the selinux_state/policydb compat path and that the avc
+  cache is reset after adding rules); (b) workaround — run `/data/adb/ksud
+  post-fs-data`, `services`, `boot-completed` manually via adb su after each boot
+  (late: ReZygisk needs a zygote restart; props/propspoof work for new app launches).
