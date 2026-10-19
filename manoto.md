@@ -1057,3 +1057,12 @@ Updated the `perf_tweaks` module: swappiness 150 (this kernel's source has
 max_swappiness=200), default_qdisc=fq (BBR paces best with fq; stock was
 pfifo_fast), tcp_congestion_control=bbr explicit, TFO=3. These apply on the NEXT
 reboot (service.sh, 45s after boot). BBR itself is already live now.
+
+### UPDATE 20b — swappiness stays 100 (Android SELinux), everything else active
+On the BBR kernel: BBR default + fq qdisc + TFO3 all verified live. swappiness,
+however, cannot be raised above 100 even by root/module: Android labels
+`/proc/sys/vm/swappiness` as `proc_swappiness` and only the init/system domain may
+write it (su/module gets "Permission denied" on read AND write). 100 is the value
+Android's init sets and is already the max-useful for zram, so this is fine — the
+perf_tweaks swappiness line is a harmless no-op. All else (vfs_cache_pressure 80,
+page-cluster 0, read_ahead 256, fq, bbr, TFO3) applies normally.
