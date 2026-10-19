@@ -94,10 +94,18 @@ jobs:
           # CONFIG_KSU_MANUAL_HOOK is not set
           CONFIG_KSU_KPROBES_HOOK=y
           # CONFIG_KSU_SYSCALL_TABLE_HOOK is not set
+          # --- BBR TCP congestion + FQ qdisc (better internet) ---
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_NET_SCH_FQ=y
+          CONFIG_DEFAULT_BBR=y
+          CONFIG_DEFAULT_FQ=y
           EOF
           make O=out ARCH=arm64 olddefconfig
           grep -E '^CONFIG_(KPROBES|KRETPROBES|KSU[A-Z_]*)=' out/.config
           grep -q '^CONFIG_KSU_KPROBES_HOOK=y' out/.config || { echo "::error::KPROBES hook not selected"; exit 1; }
+          grep -q '^CONFIG_TCP_CONG_BBR=y' out/.config || { echo "::error::BBR not enabled"; exit 1; }
+          grep -q '^CONFIG_NET_SCH_FQ=y' out/.config || { echo "::error::FQ qdisc not enabled"; exit 1; }
+          echo "TCP default: $(grep DEFAULT_TCP_CONG out/.config)"
 
       - name: Build Image
         working-directory: kernel
@@ -139,10 +147,10 @@ jobs:
           python3 tools/samsung_bootimg.py info boot.img
           strings kernel/out/arch/arm64/boot/Image | grep -m1 'Linux version'
           mkdir -p dist
-          cp boot.img dist/boot-ksunext-v3.4.0-legacy.img
-          tar --format=ustar -C dist -cf dist/boot-ksunext-odin.tar --transform 's/.*/boot.img/' boot-ksunext-v3.4.0-legacy.img
+          cp boot.img dist/boot-ksunext-v3.4.0-bbr.img
+          tar --format=ustar -C dist -cf dist/boot-ksunext-bbr-odin.tar --transform 's/.*/boot.img/' boot-ksunext-v3.4.0-bbr.img
           cp kernel/out/.config dist/kernel.config
-          (cd dist && sha256sum boot-ksunext-v3.4.0-legacy.img boot-ksunext-odin.tar > SHA256SUMS)
+          (cd dist && sha256sum boot-ksunext-v3.4.0-bbr.img boot-ksunext-bbr-odin.tar > SHA256SUMS)
           cat dist/SHA256SUMS
 
       - name: Publish to "kernel-ci" release
