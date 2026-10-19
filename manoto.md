@@ -1028,3 +1028,15 @@ edit the fstab instead (the ROM's own mechanism).
 Also installed: **App Manager** (io.github.muntashirakon.AppManager v4.1.1, FOSS app
 manager) and **SmartPack Kernel Manager** (com.smartpack.kernelmanager v17.7) — both
 in D:\star2lte-rom\integrity-2026-10-18\. zRAM uses zstd compression by default.
+
+### UPDATE 19 — 2026-10-19 perf_tweaks module (VM/IO/TCP), paired with 4GB zRAM
+Installed KSU module `perf_tweaks` (service.sh, sleep 45 then apply so it wins over
+ROM init; no zram/governor/LMK touch → no conflict). Applied & verified:
+vfs_cache_pressure=80, page-cluster=0, min_free_kbytes=18432, dirty_ratio=20,
+dirty_background_ratio=5, stat_interval=10, tcp_fastopen=3,
+tcp_slow_start_after_idle=0, read_ahead_kb/nr_requests=256 on sd*.
+NOTE: swappiness stays 100 — this 4.9 kernel CAPS swappiness at 100 (writing 140
+fails EINVAL). 100 is already the max/optimal for zram, so no loss.
+Kernel lacks BBR (only cubic/reno) → network tuning limited to TFO. CPU governor is
+schedutil only (already best). Revert = disable/remove the perf_tweaks module.
+Module zip source in scratchpad; also could be rebuilt from the service.sh in manoto.
