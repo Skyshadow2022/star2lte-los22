@@ -95,6 +95,7 @@ jobs:
           CONFIG_KSU_KPROBES_HOOK=y
           # CONFIG_KSU_SYSCALL_TABLE_HOOK is not set
           # --- BBR TCP congestion + FQ qdisc (better internet) ---
+          CONFIG_TCP_CONG_ADVANCED=y
           CONFIG_TCP_CONG_BBR=y
           CONFIG_NET_SCH_FQ=y
           CONFIG_DEFAULT_BBR=y
