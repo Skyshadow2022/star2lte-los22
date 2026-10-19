@@ -1040,3 +1040,20 @@ fails EINVAL). 100 is already the max/optimal for zram, so no loss.
 Kernel lacks BBR (only cubic/reno) → network tuning limited to TFO. CPU governor is
 schedutil only (already best). Revert = disable/remove the perf_tweaks module.
 Module zip source in scratchpad; also could be rebuilt from the service.sh in manoto.
+
+### UPDATE 20 — 2026-10-19 BBR kernel built + flashed (KernelSU-Next v3.4.0 + BBR)
+Rebuilt the KernelSU-Next kernel with BBR. kernel.yml defconfig now adds
+CONFIG_TCP_CONG_ADVANCED=y, CONFIG_TCP_CONG_BBR=y, CONFIG_NET_SCH_FQ=y,
+CONFIG_DEFAULT_BBR=y, CONFIG_DEFAULT_FQ=y (first build failed: BBR needs
+TCP_CONG_ADVANCED to stick after olddefconfig). Output renamed to keep the plain
+one as rollback. Flashed & verified on device:
+- `boot-ksunext-v3.4.0-bbr.img` (release kernel-ci; sha
+  e847249291d38e420d006a856bddcc5f0353232d672720531eee933c80390836;
+  Odin tar boot-ksunext-bbr-odin.tar; also in D:\star2lte-rom\integrity-2026-10-18\).
+- After boot: `tcp_congestion_control=bbr` (default), available `bbr reno cubic`.
+  Root/zram-4G/banking all intact.
+- Rollback kernel = boot-ksunext-v3.4.0-legacy.img (sha 60d3fd26, kernel-ci).
+Updated the `perf_tweaks` module: swappiness 150 (this kernel's source has
+max_swappiness=200), default_qdisc=fq (BBR paces best with fq; stock was
+pfifo_fast), tcp_congestion_control=bbr explicit, TFO=3. These apply on the NEXT
+reboot (service.sh, 45s after boot). BBR itself is already live now.
