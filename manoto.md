@@ -1011,3 +1011,20 @@ check, then fix it. Do NOT install the always-on "Frida Server for KernelSU" mod
 analysis, `pkill frida-server` after. The attestation modules TrickyStore /
 OhMyKeyMint / TEESimulator are alternatives for the same job — never run two at once
 (current working stack = TrickyStoreOSS + PlayIntegrityFix).
+
+### UPDATE 18 — 2026-10-19 zRAM 2GB→4GB via vendor fstab (no rebuild), + app/kernel managers
+zRAM size is hardcoded in `/vendor/etc/fstab.samsungexynos9810`:
+`/dev/block/zram0 none swap defaults zramsize=<bytes>,max_comp_streams=8`.
+vendor is ext4 + mounted directly from sda19 (NO dm-verity) → editable in place,
+no ROM build needed. Bumped zramsize 2147483648 → 4294967296 (4 GB):
+`mount -o remount,rw /vendor; <write new fstab>; mount -o remount,ro /vendor` then
+reboot. Verified after boot: `Swap: 4.0G`, `ZRAM: 4,194,300K total swap`, active.
+Backup of original fstab: `/data/local/tmp/fstab.vendor.bak` (sha cd98b3e1...) and
+`D:\star2lte-rom\integrity-2026-10-18\fstab.samsungexynos9810.ORIG`. To revert:
+write the backup back the same way + reboot.
+LESSON: a post-fs-data.d KSU module that does swapoff/reset/resize/swapon
+CONFLICTS with the ROM's own fstab swapon_all and leaves Swap=0 — don't do that;
+edit the fstab instead (the ROM's own mechanism).
+Also installed: **App Manager** (io.github.muntashirakon.AppManager v4.1.1, FOSS app
+manager) and **SmartPack Kernel Manager** (com.smartpack.kernelmanager v17.7) — both
+in D:\star2lte-rom\integrity-2026-10-18\. zRAM uses zstd compression by default.
