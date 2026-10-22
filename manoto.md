@@ -1066,3 +1066,26 @@ write it (su/module gets "Permission denied" on read AND write). 100 is the valu
 Android's init sets and is already the max-useful for zram, so this is fine — the
 perf_tweaks swappiness line is a harmless no-op. All else (vfs_cache_pressure 80,
 page-cluster 0, read_ahead 256, fq, bbr, TFO3) applies normally.
+
+### UPDATE 21 — 2026-10-22 🎉 Tejarat FIXED: ReZygisk → ZygiskNext + per-app denylist
+Tejarat (ir.tejaratbank.tata.mobile.android.tejarat) crashed at boot:
+`Caused by: RuntimeException: <varying number>` in obfuscated RASP `o.aXv`
+.attachBaseContext — client-side anti-tamper (NOT Play Integrity). logcat showed
+`avc denied ptrace comm="DefaultDispatch" scontext=zygote` → **ReZygisk's broad
+ptrace injection (zygisk-ptrace64) was detected by Tejarat.** ReZygisk has NO
+denylist (checked its webroot — no enforce/denylist option), so it ptraces every
+app and can't exclude Tejarat.
+
+**FIX: swapped ReZygisk → ZygiskNext** (Dr-TSNG/ZygiskNext v1.5.2, installs as
+module `zygisksu`; ReZygisk kept but DISABLED for rollback). ZygiskNext honors the
+KernelSU "Umount modules" denylist, so denylisted apps are NOT injected.
+Per-app profile strategy (via `ksud profile set <file>`):
+- Apps that DETECT injection (Tejarat, Bale/ir.nasim): `umount_modules=true`
+  (on denylist) → not injected → their RASP sees a clean process → work.
+- Apps that NEED PIF/Play-Integrity (Wepod): `umount_modules=false` (OFF denylist)
+  → injected → PIF applies in-context → Play Integrity passes → works.
+Result (all device-verified): **تجارت ✅ Wepod ✅ بله ✅ BLU ✅**, PIF loaded by
+ZygiskNext (process `playintegrityfix`, props user/green), zygisk_vector kept
+enabled (user wants it; works with ZygiskNext).
+Profiles are set per-app; a profile change needs a REBOOT to take effect (ZygiskNext
+reads the denylist at zygote start).
